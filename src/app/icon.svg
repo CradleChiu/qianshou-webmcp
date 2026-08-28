@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="牽手過路走">
+  <rect width="64" height="64" fill="#f4c430"/>
+  <rect x="3" y="3" width="58" height="58" fill="none" stroke="#17212b" stroke-width="6"/>
+  <circle cx="18" cy="32" r="7" fill="#17212b"/>
+  <circle cx="32" cy="32" r="7" fill="#17212b"/>
+  <circle cx="46" cy="32" r="7" fill="#17212b"/>
+</svg>
