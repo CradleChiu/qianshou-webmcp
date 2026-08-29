@@ -3,7 +3,12 @@ import {
   getWeatherSafetyBrief,
   planAccessibleTrip,
 } from "@/lib/client/journey-api";
-import type { JourneyPreferences } from "@/lib/domain/journey";
+import type {
+  JourneyPreferences,
+  TransitLegReference,
+  TransitMode,
+  VehicleArrivalRequest,
+} from "@/lib/domain/journey";
 
 export const WEBMCP_RESULT_EVENT = "qianshou:webmcp-result";
 
@@ -39,6 +44,40 @@ function readBoolean(
 ): boolean {
   const value = input[key];
   return typeof value === "boolean" ? value : fallback;
+}
+
+function readNullableString(
+  input: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = input[key];
+  if (value === null) return null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readTransitLeg(input: unknown): TransitLegReference {
+  if (!isRecord(input)) throw new Error("行程路段格式錯誤。");
+  const allowedModes: TransitMode[] = ["BUS", "SUBWAY", "RAIL", "TRAM", "FERRY"];
+  const mode = input.mode as TransitMode;
+  if (!allowedModes.includes(mode)) throw new Error("運具模式格式錯誤。");
+  const direction = input.direction;
+  if (direction !== null && direction !== 0 && direction !== 1) {
+    throw new Error("行車方向格式錯誤。");
+  }
+  const city = input.city;
+  if (city !== null && city !== "Taipei" && city !== "NewTaipei") {
+    throw new Error("TDX 城市格式錯誤。");
+  }
+  return {
+    mode,
+    stopName: readString(input, "stopName", "上車站牌"),
+    routeName: readString(input, "routeName", "路線"),
+    headsign: readNullableString(input, "headsign"),
+    stopUid: readNullableString(input, "stopUid"),
+    routeUid: readNullableString(input, "routeUid"),
+    direction,
+    city,
+  };
 }
 
 function publishResult(toolName: string, result: unknown) {
@@ -117,13 +156,50 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: "get_vehicle_arrivals",
       description:
-        "Read upcoming vehicle arrivals for a Taiwan stop and update the current page. Results include freshness and accessibility limitations.",
+        "Read upcoming vehicle arrivals and update the current page. After plan_accessible_trip, pass its data.firstTransitLeg as tripLeg so TDX is matched to the exact bus stop, route, and direction. Pass null for a walking-only trip; do not replace it with a nearby bus lookup.",
       inputSchema: {
         type: "object",
         properties: {
           stopName: {
             type: "string",
             description: "The Taiwan transit stop to check.",
+          },
+          tripLeg: {
+            description:
+              "The exact data.firstTransitLeg returned by plan_accessible_trip, or null when that plan is walking-only. Omit only for a standalone stop-name lookup.",
+            anyOf: [
+              {
+                type: "object",
+                properties: {
+                  mode: {
+                    type: "string",
+                    enum: ["BUS", "SUBWAY", "RAIL", "TRAM", "FERRY"],
+                  },
+                  stopName: { type: "string" },
+                  routeName: { type: "string" },
+                  headsign: { type: ["string", "null"] },
+                  stopUid: { type: ["string", "null"] },
+                  routeUid: { type: ["string", "null"] },
+                  direction: { type: ["integer", "null"], enum: [0, 1, null] },
+                  city: {
+                    type: ["string", "null"],
+                    enum: ["Taipei", "NewTaipei", null],
+                  },
+                },
+                required: [
+                  "mode",
+                  "stopName",
+                  "routeName",
+                  "headsign",
+                  "stopUid",
+                  "routeUid",
+                  "direction",
+                  "city",
+                ],
+                additionalProperties: false,
+              },
+              { type: "null" },
+            ],
           },
         },
         required: ["stopName"],
@@ -135,9 +211,16 @@ export async function registerJourneyTools(): Promise<{
           throw new Error("到站參數格式錯誤。");
         }
 
-        const result = await getVehicleArrivals(
-          readString(rawInput, "stopName", "站牌"),
-        );
+        const request: VehicleArrivalRequest = {
+          stopName: readString(rawInput, "stopName", "站牌"),
+        };
+        if (Object.prototype.hasOwnProperty.call(rawInput, "tripLeg")) {
+          request.tripLeg =
+            rawInput.tripLeg === null
+              ? null
+              : readTransitLeg(rawInput.tripLeg);
+        }
+        const result = await getVehicleArrivals(request);
         publishResult("get_vehicle_arrivals", result);
         return result;
       },

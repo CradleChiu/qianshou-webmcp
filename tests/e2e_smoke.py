@@ -144,6 +144,9 @@ def run_desktop(browser):
         "get_weather_safety_brief",
         "plan_accessible_trip",
     ]
+    assert page.evaluate(
+        "() => Boolean(window.__webmcpTools.get_vehicle_arrivals.inputSchema.properties.tripLeg)"
+    )
 
     page.evaluate(
         """
@@ -161,23 +164,29 @@ def run_desktop(browser):
 
     page.evaluate(
         """
-        () => Promise.all([
-          window.__webmcpTools.plan_accessible_trip.execute({
+        async () => {
+          const plan = await window.__webmcpTools.plan_accessible_trip.execute({
             origin: '台北車站',
             destination: '台大醫院',
             minimizeWalking: true,
             minimizeTransfers: true,
             stepFree: true
-          }),
-          window.__webmcpTools.get_vehicle_arrivals.execute({
-            stopName: '台北車站附近站牌'
-          })
-        ])
+          });
+          return window.__webmcpTools.get_vehicle_arrivals.execute({
+            stopName: plan.data.firstTransitLeg?.stopName ?? '台北車站附近站牌',
+            tripLeg: plan.data.firstTransitLeg
+          });
+        }
         """
     )
     page.get_by_role("heading", name="這趟路的重點").wait_for()
     assert page.get_by_text("臺北車站到臺大醫院的 OTP 大眾運輸方案").count() == 1
-    assert page.get_by_text("下一班車").is_visible()
+    assert page.locator(".brief-card .card-label").filter(
+        has_text="這趟交通"
+    ).is_visible()
+    assert page.get_by_role("heading", name="這趟不需搭車").is_visible()
+    assert page.get_by_text("系統沒有顯示與這趟行程無關的附近公車。", exact=True).count() == 1
+    assert page.get_by_text("14・", exact=False).count() == 0
     assert page.locator(".journey-summary .source-kind").inner_text() == "整合資料"
     assert page.get_by_text(
         "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
@@ -213,7 +222,10 @@ def run_mobile(browser):
     assert page.get_by_role("button", name="朗讀目前行程").is_visible()
     assert page.get_by_role("button", name="暫停朗讀").is_disabled()
     assert page.get_by_role("button", name="停止朗讀").is_disabled()
-    assert page.get_by_text("下一班車").is_visible()
+    assert page.locator(".brief-card .card-label").filter(
+        has_text="這趟交通"
+    ).is_visible()
+    assert page.get_by_role("heading", name="這趟不需搭車").is_visible()
     assert page.get_by_text("目的地天氣").is_visible()
     assert page.locator(".brief-card--weather").get_by_text(
         "3 小時分段", exact=False

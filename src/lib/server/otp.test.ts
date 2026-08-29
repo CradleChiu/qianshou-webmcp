@@ -57,9 +57,20 @@ function responseBody() {
                   duration: 480,
                   distance: 900,
                   headsign: "象山",
-                  from: { name: "臺北車站" },
-                  to: { name: "臺大醫院站" },
-                  route: { shortName: "R", longName: "淡水信義線" },
+                  from: {
+                    name: "臺北車站",
+                    stop: { gtfsId: "1:R10", name: "臺北車站" },
+                  },
+                  to: {
+                    name: "臺大醫院站",
+                    stop: { gtfsId: "1:R09", name: "臺大醫院站" },
+                  },
+                  route: {
+                    gtfsId: "1:R_0",
+                    shortName: "R",
+                    longName: "淡水信義線",
+                  },
+                  trip: { gtfsId: "1:R-test-trip", directionId: "0" },
                 },
                 {
                   mode: "WALK",
@@ -105,6 +116,16 @@ describe("OTP adapter", () => {
     expect(result.data.transfers).toBe(0);
     expect(result.data.steps[1].label).toBe("搭乘R");
     expect(result.data.steps[2].label).toBe("步行至臺大醫院");
+    expect(result.data.firstTransitLeg).toEqual({
+      mode: "SUBWAY",
+      stopName: "臺北車站",
+      routeName: "R",
+      headsign: "象山",
+      stopUid: "R10",
+      routeUid: "R",
+      direction: 0,
+      city: null,
+    });
     expect(bodies[0]?.query).toContain("planConnection");
     expect(bodies[0]?.variables).toMatchObject({
       preferences: {
@@ -114,6 +135,52 @@ describe("OTP adapter", () => {
           transfer: { cost: 1200, maximumAdditionalTransfers: 0 },
         },
       },
+    });
+  });
+
+  it("把第一段公車轉成可供 TDX 精確查詢的識別資料", async () => {
+    const body = responseBody();
+    const itinerary = body.data.planConnection.edges[0].node;
+    itinerary.legs = [
+      {
+        mode: "BUS",
+        transitLeg: true,
+        duration: 600,
+        distance: 3000,
+        headsign: "行政院",
+        from: {
+          name: "漢生路",
+          stop: { gtfsId: "1:TPE58747", name: "漢生路" },
+        },
+        to: {
+          name: "臺北車站",
+          stop: { gtfsId: "1:TPE1000", name: "臺北車站" },
+        },
+        route: {
+          gtfsId: "1:TPE155928_0",
+          shortName: "265夜間公車",
+          longName: "",
+        },
+        trip: { gtfsId: "1:test-trip", directionId: "0" },
+      },
+    ];
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(request, origin, destination);
+
+    expect(result.data.firstTransitLeg).toEqual({
+      mode: "BUS",
+      stopName: "漢生路",
+      routeName: "265夜間公車",
+      headsign: "行政院",
+      stopUid: "TPE58747",
+      routeUid: "TPE155928",
+      direction: 0,
+      city: "Taipei",
     });
   });
 

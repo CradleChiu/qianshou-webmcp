@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TransitLegReference } from "@/lib/domain/journey";
 import type { ServerFetch, ServerRequestInit } from "./http";
 import { TdxClient } from "./tdx";
 
@@ -56,7 +57,8 @@ describe("TDX adapter", () => {
     expect(requests.filter((request) => request.url.endsWith("/token"))).toHaveLength(1);
     expect(requests).toHaveLength(2);
     expect(first.status).toBe("partial");
-    expect(first.data[0]).toMatchObject({
+    expect(first.data.matchType).toBe("stop-keyword");
+    expect(first.data.arrivals[0]).toMatchObject({
       stopName: "臺大醫院",
       routeName: "22",
       minutes: 4,
@@ -99,7 +101,7 @@ describe("TDX adapter", () => {
     });
 
     expect(result.status).toBe("unavailable");
-    expect(result.data).toEqual([]);
+    expect(result.data.arrivals).toEqual([]);
     expect(result.limitations[0]).toContain("沒有回傳");
   });
 
@@ -166,10 +168,92 @@ describe("TDX adapter", () => {
     expect(tokenRequests).toBe(2);
     expect(arrivalRequests).toBe(2);
     expect(result.status).toBe("partial");
-    expect(result.data[0]).toMatchObject({
+    expect(result.data.arrivals[0]).toMatchObject({
       stopName: "臺北車站(忠孝)",
       routeName: "262",
       minutes: 1,
     });
+  });
+
+  it("以 OTP 路段的站牌、路線與方向精確查詢到站", async () => {
+    const requests: string[] = [];
+    const fetcher: ServerFetch = vi.fn(async (input) => {
+      const url = input.toString();
+      requests.push(url);
+      if (url.endsWith("/token")) {
+        return jsonResponse({ access_token: "access-token", expires_in: 3_600 });
+      }
+      return jsonResponse([
+        {
+          StopUID: "TPE58747",
+          StopName: { Zh_tw: "漢生路" },
+          RouteUID: "TPE155928",
+          RouteName: { Zh_tw: "265夜間公車" },
+          Direction: 0,
+          EstimateTime: 121,
+          SrcUpdateTime: "2026-08-29T00:04:00.000Z",
+        },
+      ]);
+    });
+    const leg: TransitLegReference = {
+      mode: "BUS",
+      stopName: "漢生路",
+      routeName: "265夜間公車",
+      headsign: "行政院",
+      stopUid: "TPE58747",
+      routeUid: "TPE155928",
+      direction: 0,
+      city: "Taipei",
+    };
+
+    const result = await createClient(fetcher).getTripVehicleArrivals(leg);
+
+    expect(result.status).toBe("partial");
+    expect(result.data.matchType).toBe("exact-trip");
+    expect(result.data.requestedLeg).toEqual(leg);
+    expect(result.data.arrivals[0]).toMatchObject({
+      stopName: "漢生路",
+      routeName: "265夜間公車",
+      minutes: 3,
+      direction: 0,
+      headsign: "行政院",
+    });
+    const filter = new URL(requests[1]).searchParams.get("$filter");
+    expect(filter).toBe(
+      "StopUID eq 'TPE58747' and RouteUID eq 'TPE155928' and Direction eq 0 and EstimateTime ne null",
+    );
+  });
+
+  it("精確識別不符時不混入其他路線或反方向班次", async () => {
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      input.toString().endsWith("/token")
+        ? jsonResponse({ access_token: "access-token", expires_in: 3_600 })
+        : jsonResponse([
+            {
+              StopUID: "TPE58747",
+              StopName: { Zh_tw: "漢生路" },
+              RouteUID: "TPE155928",
+              RouteName: { Zh_tw: "265夜間公車" },
+              Direction: 1,
+              EstimateTime: 60,
+            },
+          ]),
+    );
+    const leg: TransitLegReference = {
+      mode: "BUS",
+      stopName: "漢生路",
+      routeName: "265夜間公車",
+      headsign: "行政院",
+      stopUid: "TPE58747",
+      routeUid: "TPE155928",
+      direction: 0,
+      city: "Taipei",
+    };
+
+    const result = await createClient(fetcher).getTripVehicleArrivals(leg);
+
+    expect(result.status).toBe("unavailable");
+    expect(result.data.arrivals).toEqual([]);
+    expect(result.limitations[1]).toContain("沒有改用附近其他路線、反方向");
   });
 });

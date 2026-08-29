@@ -25,19 +25,50 @@ export type JourneyStep = {
   caution?: string;
 };
 
+export type TransitMode = "BUS" | "SUBWAY" | "RAIL" | "TRAM" | "FERRY";
+
+export type TransitLegReference = {
+  mode: TransitMode;
+  stopName: string;
+  routeName: string;
+  headsign: string | null;
+  stopUid: string | null;
+  routeUid: string | null;
+  direction: 0 | 1 | null;
+  city: "Taipei" | "NewTaipei" | null;
+};
+
 export type JourneyPlan = {
   summary: string;
   estimatedMinutes: number;
   walkingMinutes: number;
   transfers: number;
   steps: JourneyStep[];
+  firstTransitLeg: TransitLegReference | null;
 };
 
 export type VehicleArrival = {
   stopName: string;
   routeName: string;
   minutes: number | null;
+  direction: 0 | 1 | null;
+  headsign: string | null;
   accessibilityNote: string;
+};
+
+export type VehicleArrivalResult = {
+  matchType:
+    | "exact-trip"
+    | "stop-keyword"
+    | "no-transit"
+    | "unsupported-mode";
+  requestedLeg: TransitLegReference | null;
+  arrivals: VehicleArrival[];
+};
+
+export type VehicleArrivalRequest = {
+  stopName: string;
+  tripLeg?: TransitLegReference | null;
 };
 
 export type WeatherBrief = {
@@ -134,13 +165,23 @@ export async function planAccessibleTrip(
           detail: `下車後前往${destination}；請依現場導引及個人行動輔具判斷。`,
         },
       ],
+      firstTransitLeg: {
+        mode: "BUS",
+        stopName: `${origin}附近站牌`,
+        routeName: "示範路線",
+        headsign: null,
+        stopUid: null,
+        routeUid: null,
+        direction: null,
+        city: null,
+      },
     },
   };
 }
 
 export async function getVehicleArrivals(
   stopName: string,
-): Promise<ServiceEnvelope<VehicleArrival[]>> {
+): Promise<ServiceEnvelope<VehicleArrivalResult>> {
   const normalizedStop = requirePlace(stopName, "站牌");
 
   return {
@@ -148,20 +189,28 @@ export async function getVehicleArrivals(
     generatedAt: new Date().toISOString(),
     source: developmentSource(),
     limitations: ["到站時間是介面測試資料，不是即時預估。"],
-    data: [
-      {
-        stopName: normalizedStop,
-        routeName: "示範路線 1",
-        minutes: 4,
-        accessibilityNote: "低地板車輛資訊尚待確認",
-      },
-      {
-        stopName: normalizedStop,
-        routeName: "示範路線 2",
-        minutes: 11,
-        accessibilityNote: "車輛無障礙資訊未知",
-      },
-    ],
+    data: {
+      matchType: "stop-keyword",
+      requestedLeg: null,
+      arrivals: [
+        {
+          stopName: normalizedStop,
+          routeName: "示範路線 1",
+          minutes: 4,
+          direction: null,
+          headsign: null,
+          accessibilityNote: "低地板車輛資訊尚待確認",
+        },
+        {
+          stopName: normalizedStop,
+          routeName: "示範路線 2",
+          minutes: 11,
+          direction: null,
+          headsign: null,
+          accessibilityNote: "車輛無障礙資訊未知",
+        },
+      ],
+    },
   };
 }
 

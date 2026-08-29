@@ -23,7 +23,7 @@
 - `plan_accessible_trip`、`get_vehicle_arrivals`、`get_weather_safety_brief` 三個 WebMCP imperative tools。
 - WebMCP 不可用時保留完整手動操作。
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。
-- TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站 adapter（資料快取 30 秒）。
+- TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站 adapter（資料快取 30 秒）。OTP 公車路段會以 `StopUID + RouteUID + Direction` 精確綁定 TDX 到站；純步行或非公車路段不會混入附近公車。
 - 中央氣象署雙北鄉鎮逐 3 小時預報 adapter，只整理目前與下一時段、涵蓋未來約 3–6 小時（資料快取 10 分鐘）。
 - OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference。
 - TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。

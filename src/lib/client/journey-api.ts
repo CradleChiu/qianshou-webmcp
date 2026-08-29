@@ -2,13 +2,14 @@ import type {
   JourneyPlan,
   JourneyRequest,
   ServiceEnvelope,
-  VehicleArrival,
+  VehicleArrivalRequest,
+  VehicleArrivalResult,
   WeatherBrief,
 } from "@/lib/domain/journey";
 
 type JourneyAction =
   | { action: "plan"; request: JourneyRequest }
-  | { action: "arrivals"; stopName: string }
+  | ({ action: "arrivals" } & VehicleArrivalRequest)
   | { action: "weather"; location: string };
 
 async function requestJourney<T>(body: JourneyAction): Promise<ServiceEnvelope<T>> {
@@ -39,9 +40,9 @@ export function planAccessibleTrip(
 }
 
 export function getVehicleArrivals(
-  stopName: string,
-): Promise<ServiceEnvelope<VehicleArrival[]>> {
-  return requestJourney<VehicleArrival[]>({ action: "arrivals", stopName });
+  request: VehicleArrivalRequest,
+): Promise<ServiceEnvelope<VehicleArrivalResult>> {
+  return requestJourney<VehicleArrivalResult>({ action: "arrivals", ...request });
 }
 
 export function getWeatherSafetyBrief(

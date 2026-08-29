@@ -10,7 +10,7 @@ import type {
   InformationSource,
   JourneyPlan,
   ServiceEnvelope,
-  VehicleArrival,
+  VehicleArrivalResult,
   WeatherBrief,
 } from "@/lib/domain/journey";
 import {
@@ -25,7 +25,7 @@ type InvalidField = "origin" | "destination" | null;
 
 type Results = {
   plan?: ServiceEnvelope<JourneyPlan>;
-  arrivals?: ServiceEnvelope<VehicleArrival[]>;
+  arrivals?: ServiceEnvelope<VehicleArrivalResult>;
   weather?: ServiceEnvelope<WeatherBrief>;
 };
 
@@ -165,7 +165,7 @@ export function JourneyWorkspace() {
         if (toolName === "get_vehicle_arrivals") {
           return {
             ...current,
-            arrivals: result as ServiceEnvelope<VehicleArrival[]>,
+            arrivals: result as ServiceEnvelope<VehicleArrivalResult>,
           };
         }
         if (toolName === "get_weather_safety_brief") {
@@ -221,15 +221,22 @@ export function JourneyWorkspace() {
     setAnnouncement("正在整理行程、到站與天氣資訊。");
 
     try {
-      const [plan, arrivals, weather] = await Promise.all([
-        planAccessibleTrip({
-          origin: normalizedOrigin,
-          destination: normalizedDestination,
-          preferences: { minimizeWalking, minimizeTransfers, stepFree },
-        }),
-        getVehicleArrivals(`${normalizedOrigin}附近站牌`),
-        getWeatherSafetyBrief(normalizedDestination),
-      ]);
+      const weatherPromise = getWeatherSafetyBrief(normalizedDestination);
+      const plan = await planAccessibleTrip({
+        origin: normalizedOrigin,
+        destination: normalizedDestination,
+        preferences: { minimizeWalking, minimizeTransfers, stepFree },
+      });
+      const arrivals =
+        plan.status === "unavailable"
+          ? undefined
+          : await getVehicleArrivals({
+              stopName:
+                plan.data.firstTransitLeg?.stopName ??
+                `${normalizedOrigin}附近站牌`,
+              tripLeg: plan.data.firstTransitLeg,
+            });
+      const weather = await weatherPromise;
 
       setResults({ plan, arrivals, weather });
       setAnnouncement("行前資訊已整理完成，請逐項確認資料來源與限制。");
@@ -262,10 +269,28 @@ export function JourneyWorkspace() {
     }
 
     const plan = results.plan.data;
+    const arrivalResult = results.arrivals?.data;
+    const nextArrival = arrivalResult?.arrivals[0];
+    const arrivalSpeech = !arrivalResult
+      ? []
+      : arrivalResult.matchType === "no-transit"
+        ? ["這趟行程沒有大眾運輸路段，不需要查詢到站倒數。"]
+        : nextArrival
+          ? [
+              `${nextArrival.routeName}在${nextArrival.stopName}${
+                nextArrival.minutes === null
+                  ? "的到站時間未知"
+                  : `預估 ${nextArrival.minutes} 分鐘後到站`
+              }${nextArrival.headsign ? `，往${nextArrival.headsign}` : ""}。`,
+            ]
+          : results.arrivals
+            ? [results.arrivals.limitations[0]]
+            : [];
     const text = [
       plan.summary,
       `預估 ${plan.estimatedMinutes} 分鐘，步行約 ${plan.walkingMinutes} 分鐘，轉乘 ${plan.transfers} 次。`,
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
+      ...arrivalSpeech,
       ...results.plan.limitations,
     ].join(" ");
     const utterance = new SpeechSynthesisUtterance(text);
@@ -337,7 +362,17 @@ export function JourneyWorkspace() {
   const hasFixtureResults = Object.values(results).some(
     (result) => result?.source.kind === "development-fixture",
   );
-  const nextArrival = results.arrivals?.data[0];
+  const arrivalResult = results.arrivals?.data;
+  const nextArrival = arrivalResult?.arrivals[0];
+  const requestedLeg = arrivalResult?.requestedLeg;
+  const arrivalLabel =
+    arrivalResult?.matchType === "exact-trip"
+      ? "這趟下一班車"
+      : arrivalResult?.matchType === "no-transit"
+        ? "這趟交通"
+        : arrivalResult?.matchType === "unsupported-mode"
+          ? "這趟到站"
+          : "附近到站";
 
   return (
     <>
@@ -573,14 +608,44 @@ export function JourneyWorkspace() {
                   {results.arrivals ? (
                     <article className="brief-card" aria-labelledby="arrival-title">
                       <p className="card-label">
-                        下一班車
+                        {arrivalLabel}
                         <span className={`source-kind source-kind--${results.arrivals.source.kind}`}>
                           {sourceKindText(results.arrivals.source.kind, true)}
                         </span>
                       </p>
-                      {results.arrivals.status === "unavailable" || !nextArrival ? (
+                      {arrivalResult?.matchType === "no-transit" ? (
                         <>
-                          <h3 id="arrival-title">暫時無法取得</h3>
+                          <h3 id="arrival-title">這趟不需搭車</h3>
+                          <p>{results.arrivals.limitations[0]}</p>
+                        </>
+                      ) : arrivalResult?.matchType === "unsupported-mode" ? (
+                        <>
+                          <h3 id="arrival-title">
+                            {requestedLeg?.routeName ?? "這段交通"}暫無進站倒數
+                          </h3>
+                          <p>
+                            上車：{requestedLeg?.stopName ?? "站點未知"}
+                            {requestedLeg?.headsign
+                              ? `・往${requestedLeg.headsign}`
+                              : ""}
+                          </p>
+                          <p>{results.arrivals.limitations[0]}</p>
+                        </>
+                      ) : results.arrivals.status === "unavailable" || !nextArrival ? (
+                        <>
+                          <h3 id="arrival-title">
+                            {arrivalResult?.matchType === "exact-trip"
+                              ? "精確班次暫無資料"
+                              : "暫時無法取得"}
+                          </h3>
+                          {requestedLeg ? (
+                            <p>
+                              {requestedLeg.routeName}・{requestedLeg.stopName}
+                              {requestedLeg.headsign
+                                ? `・往${requestedLeg.headsign}`
+                                : ""}
+                            </p>
+                          ) : null}
                           <p>{results.arrivals.limitations[0]}</p>
                         </>
                       ) : (
@@ -591,8 +656,12 @@ export function JourneyWorkspace() {
                               : `${nextArrival.minutes} 分鐘`}
                           </h3>
                           <p>
-                            {nextArrival.routeName}・{nextArrival.accessibilityNote}
+                            {nextArrival.routeName}・{nextArrival.stopName}
+                            {nextArrival.headsign
+                              ? `・往${nextArrival.headsign}`
+                              : ""}
                           </p>
+                          <p>{nextArrival.accessibilityNote}</p>
                         </>
                       )}
                     </article>

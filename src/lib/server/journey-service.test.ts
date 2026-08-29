@@ -15,6 +15,54 @@ describe("journey service orchestration", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("純步行行程不查附近公車，也不建立不相關到站資料", async () => {
+    const fetcher: ServerFetch = vi.fn();
+    const services = createJourneyServices({ env: {}, fetcher });
+
+    const result = await services.getVehicleArrivals({
+      stopName: "臺北車站附近站牌",
+      tripLeg: null,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.data.matchType).toBe("no-transit");
+    expect(result.data.arrivals).toEqual([]);
+    expect(result.limitations[1]).toContain("無關的附近公車");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("捷運路段保留 OTP 路線脈絡，不改用公車倒數替代", async () => {
+    const fetcher: ServerFetch = vi.fn();
+    const services = createJourneyServices({
+      env: {
+        TDX_CLIENT_ID: "configured",
+        TDX_CLIENT_SECRET: "configured",
+      },
+      fetcher,
+    });
+    const tripLeg = {
+      mode: "SUBWAY" as const,
+      stopName: "臺北車站",
+      routeName: "R",
+      headsign: "象山",
+      stopUid: "R10",
+      routeUid: "R",
+      direction: 0 as const,
+      city: null,
+    };
+
+    const result = await services.getVehicleArrivals({
+      stopName: tripLeg.stopName,
+      tripLeg,
+    });
+
+    expect(result.status).toBe("unavailable");
+    expect(result.data.matchType).toBe("unsupported-mode");
+    expect(result.data.requestedLeg).toEqual(tripLeg);
+    expect(result.limitations[0]).toContain("沒有改用附近公車替代");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("官方服務失敗時回傳 unavailable，且不偷換示範資料", async () => {
     const fetcher: ServerFetch = vi.fn(async () =>
       new Response("upstream unavailable", { status: 503 }),

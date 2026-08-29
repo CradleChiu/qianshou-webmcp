@@ -1,6 +1,8 @@
 import type {
   ServiceEnvelope,
+  TransitLegReference,
   VehicleArrival,
+  VehicleArrivalResult,
 } from "@/lib/domain/journey";
 import {
   ExternalServiceError,
@@ -28,8 +30,11 @@ type TokenResponse = {
 };
 
 type TdxArrivalRecord = {
+  StopUID?: unknown;
   StopName?: { Zh_tw?: unknown };
+  RouteUID?: unknown;
   RouteName?: { Zh_tw?: unknown };
+  Direction?: unknown;
   EstimateTime?: unknown;
   SrcUpdateTime?: unknown;
   UpdateTime?: unknown;
@@ -70,7 +75,7 @@ export class TdxClient {
   private token: { value: string; expiresAt: number } | null = null;
   private readonly arrivalsCache = new Map<
     string,
-    { value: ServiceEnvelope<VehicleArrival[]>; expiresAt: number }
+    { value: ServiceEnvelope<VehicleArrivalResult>; expiresAt: number }
   >();
 
   constructor(
@@ -153,7 +158,7 @@ export class TdxClient {
 
   async getVehicleArrivals(
     place: ResolvedTransitPlace,
-  ): Promise<ServiceEnvelope<VehicleArrival[]>> {
+  ): Promise<ServiceEnvelope<VehicleArrivalResult>> {
     const cacheKey = `${place.city}:${place.stopKeyword}`;
     const cached = this.arrivalsCache.get(cacheKey);
     if (cached && cached.expiresAt > this.now().getTime()) return cached.value;
@@ -206,6 +211,11 @@ export class TdxClient {
             record.EstimateTime >= 0
               ? Math.ceil(record.EstimateTime / 60)
               : null,
+          direction:
+            record.Direction === 0 || record.Direction === 1
+              ? record.Direction
+              : null,
+          headsign: null,
           accessibilityNote: "本筆到站資料未提供低地板車輛狀態",
         };
       })
@@ -219,7 +229,7 @@ export class TdxClient {
     const observedAt = latestTimestamp(records);
     const freshness = freshnessOf(observedAt, this.now());
 
-    const result: ServiceEnvelope<VehicleArrival[]> = {
+    const result: ServiceEnvelope<VehicleArrivalResult> = {
       status: arrivals.length ? "partial" : "unavailable",
       generatedAt: retrievedAt,
       source: {
@@ -237,7 +247,139 @@ export class TdxClient {
             ...(freshness === "stale" ? ["這筆到站資料可能已過期。"] : []),
           ]
         : ["TDX 沒有回傳符合此站名的到站資料，請修改站名後再試。"],
-      data: arrivals,
+      data: {
+        matchType: "stop-keyword",
+        requestedLeg: null,
+        arrivals,
+      },
+    };
+    this.arrivalsCache.set(cacheKey, {
+      value: result,
+      expiresAt: this.now().getTime() + 30_000,
+    });
+    return result;
+  }
+
+  async getTripVehicleArrivals(
+    leg: TransitLegReference,
+  ): Promise<ServiceEnvelope<VehicleArrivalResult>> {
+    if (
+      leg.mode !== "BUS" ||
+      !leg.city ||
+      !leg.stopUid ||
+      !leg.routeUid ||
+      leg.direction === null
+    ) {
+      throw new ExternalServiceError(
+        "TDX 到站服務",
+        "invalid-response",
+        "OTP 公車路段缺少 TDX 精確查詢識別碼。",
+      );
+    }
+
+    const cacheKey = [
+      "trip",
+      leg.city,
+      leg.stopUid,
+      leg.routeUid,
+      leg.direction,
+    ].join(":");
+    const cached = this.arrivalsCache.get(cacheKey);
+    if (cached && cached.expiresAt > this.now().getTime()) return cached.value;
+    if (cached) this.arrivalsCache.delete(cacheKey);
+
+    let token = await this.accessToken();
+    const base = this.config.apiBaseUrl.replace(/\/$/, "");
+    const url = new URL(
+      `${base}/v2/Bus/EstimatedTimeOfArrival/City/${leg.city}`,
+    );
+    const stopUid = leg.stopUid.replaceAll("'", "''");
+    const routeUid = leg.routeUid.replaceAll("'", "''");
+    url.searchParams.set(
+      "$filter",
+      `StopUID eq '${stopUid}' and RouteUID eq '${routeUid}' and Direction eq ${leg.direction} and EstimateTime ne null`,
+    );
+    url.searchParams.set("$orderby", "EstimateTime");
+    url.searchParams.set("$top", "5");
+    url.searchParams.set("$format", "JSON");
+
+    let records: TdxArrivalRecord[];
+    try {
+      records = await this.arrivalRecords(url, token);
+    } catch (error) {
+      const shouldRefreshToken =
+        error instanceof ExternalServiceError &&
+        error.kind === "http" &&
+        (error.status === 401 || error.status === 403);
+      if (!shouldRefreshToken) throw error;
+      this.token = null;
+      token = await this.accessToken();
+      records = await this.arrivalRecords(url, token);
+    }
+
+    const exactRecords = records.filter(
+      (record) =>
+        readText(record.StopUID) === leg.stopUid &&
+        readText(record.RouteUID) === leg.routeUid &&
+        record.Direction === leg.direction,
+    );
+    const arrivals = exactRecords
+      .map((record): VehicleArrival | null => {
+        const stopName = readText(record.StopName?.Zh_tw);
+        const routeName = readText(record.RouteName?.Zh_tw);
+        if (!stopName || !routeName) return null;
+        return {
+          stopName,
+          routeName,
+          minutes:
+            typeof record.EstimateTime === "number" &&
+            record.EstimateTime >= 0
+              ? Math.ceil(record.EstimateTime / 60)
+              : null,
+          direction: leg.direction,
+          headsign: leg.headsign,
+          accessibilityNote: "本筆到站資料未提供低地板車輛狀態",
+        };
+      })
+      .filter((arrival): arrival is VehicleArrival => Boolean(arrival))
+      .sort(
+        (left, right) =>
+          (left.minutes ?? Number.POSITIVE_INFINITY) -
+          (right.minutes ?? Number.POSITIVE_INFINITY),
+      )
+      .slice(0, 2);
+    const retrievedAt = this.now().toISOString();
+    const observedAt = latestTimestamp(exactRecords);
+    const freshness = freshnessOf(observedAt, this.now());
+    const directionText = leg.headsign
+      ? `往${leg.headsign}`
+      : `方向 ${leg.direction}`;
+    const result: ServiceEnvelope<VehicleArrivalResult> = {
+      status: arrivals.length ? "partial" : "unavailable",
+      generatedAt: retrievedAt,
+      source: {
+        name: "TDX 運輸資料流通服務",
+        observedAt,
+        retrievedAt,
+        kind: "official",
+        url: TDX_DOCUMENTATION_URL,
+        freshness,
+      },
+      limitations: arrivals.length
+        ? [
+            `到站已精確綁定 ${leg.routeName}、${leg.stopName}、${directionText}，沒有混入附近其他路線或方向。`,
+            "TDX 到站資料未提供本班車低地板狀態。",
+            ...(freshness === "stale" ? ["這筆到站資料可能已過期。"] : []),
+          ]
+        : [
+            `TDX 目前沒有回傳 ${leg.routeName} 在${leg.stopName}、${directionText}的到站倒數。`,
+            "系統沒有改用附近其他路線、反方向或示範資料替代。",
+          ],
+      data: {
+        matchType: "exact-trip",
+        requestedLeg: leg,
+        arrivals,
+      },
     };
     this.arrivalsCache.set(cacheKey, {
       value: result,

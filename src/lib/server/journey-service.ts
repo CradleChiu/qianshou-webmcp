@@ -5,7 +5,9 @@ import {
   type JourneyPlan,
   type JourneyRequest,
   type ServiceEnvelope,
-  type VehicleArrival,
+  type TransitLegReference,
+  type VehicleArrivalRequest,
+  type VehicleArrivalResult,
   type WeatherBrief,
 } from "@/lib/domain/journey";
 import { CwaClient, type CwaConfig } from "@/lib/server/cwa";
@@ -164,6 +166,7 @@ export function createJourneyServices(
         walkingMinutes: 0,
         transfers: 0,
         steps: [],
+        firstTransitLeg: null,
       };
 
       if (!origin || !destination) {
@@ -196,13 +199,105 @@ export function createJourneyServices(
     },
 
     async getVehicleArrivals(
-      stopName: string,
-    ): Promise<ServiceEnvelope<VehicleArrival[]>> {
-      if (!tdx) return getFixtureVehicleArrivals(stopName);
-      const place = resolveDoubleTaipeiTransitPlace(stopName);
+      input: string | VehicleArrivalRequest,
+    ): Promise<ServiceEnvelope<VehicleArrivalResult>> {
+      const request =
+        typeof input === "string" ? { stopName: input } : input;
+      const hasTripContext =
+        typeof input !== "string" &&
+        Object.prototype.hasOwnProperty.call(input, "tripLeg");
+
+      if (hasTripContext && request.tripLeg === null) {
+        const retrievedAt = now().toISOString();
+        return {
+          status: "ok",
+          generatedAt: retrievedAt,
+          source: {
+            name: "OpenTripPlanner（TDX GTFS＋© OpenStreetMap contributors）",
+            observedAt: null,
+            retrievedAt,
+            kind: "integrated",
+            url: "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/",
+            freshness: "unknown",
+          },
+          limitations: [
+            "OTP 選出的行程沒有大眾運輸路段，因此不需要查詢到站倒數。",
+            "系統沒有顯示與這趟行程無關的附近公車。",
+          ],
+          data: {
+            matchType: "no-transit",
+            requestedLeg: null,
+            arrivals: [],
+          },
+        };
+      }
+
+      const tripLeg = hasTripContext
+        ? (request.tripLeg as TransitLegReference | undefined)
+        : undefined;
+      if (tripLeg && tripLeg.mode !== "BUS") {
+        const modeName =
+          tripLeg.mode === "SUBWAY"
+            ? "捷運"
+            : tripLeg.mode === "RAIL"
+              ? "鐵路"
+              : tripLeg.mode === "TRAM"
+                ? "輕軌"
+                : tripLeg.mode;
+        return unavailableEnvelope(
+          {
+            matchType: "unsupported-mode",
+            requestedLeg: tripLeg,
+            arrivals: [],
+          },
+          "OpenTripPlanner 路線＋TDX 到站能力",
+          "https://tdx.transportdata.tw/api-service/swagger",
+          `行程第一段大眾運輸是${tripLeg.routeName}${modeName}；TDX 目前無法提供可用的進站前倒數，系統沒有改用附近公車替代。`,
+          now(),
+          "integrated",
+        );
+      }
+
+      if (tripLeg) {
+        if (!tdx) {
+          return unavailableEnvelope(
+            {
+              matchType: "exact-trip",
+              requestedLeg: tripLeg,
+              arrivals: [],
+            },
+            "TDX 運輸資料流通服務",
+            "https://tdx.transportdata.tw/api-service/swagger",
+            "尚未設定 TDX 金鑰，無法查詢這趟公車的精確到站倒數。",
+            now(),
+          );
+        }
+        try {
+          return await tdx.getTripVehicleArrivals(tripLeg);
+        } catch (error) {
+          return unavailableEnvelope(
+            {
+              matchType: "exact-trip",
+              requestedLeg: tripLeg,
+              arrivals: [],
+            },
+            "TDX 運輸資料流通服務",
+            "https://tdx.transportdata.tw/api-service/swagger",
+            failureMessage("TDX", error),
+            now(),
+          );
+        }
+      }
+
+      if (!tdx) return getFixtureVehicleArrivals(request.stopName);
+      const place = resolveDoubleTaipeiTransitPlace(request.stopName);
       if (!place) {
         return unavailableEnvelope(
-          [],
+          {
+            matchType: "stop-keyword",
+            requestedLeg: null,
+            arrivals: [],
+          },
           "TDX 運輸資料流通服務",
           "https://tdx.transportdata.tw/api-service/swagger",
           "第一階段的官方到站查詢只支援雙北（臺北市與新北市）站牌。",
@@ -214,7 +309,11 @@ export function createJourneyServices(
         return await tdx.getVehicleArrivals(place);
       } catch (error) {
         return unavailableEnvelope(
-          [],
+          {
+            matchType: "stop-keyword",
+            requestedLeg: null,
+            arrivals: [],
+          },
           "TDX 運輸資料流通服務",
           "https://tdx.transportdata.tw/api-service/swagger",
           failureMessage("TDX", error),

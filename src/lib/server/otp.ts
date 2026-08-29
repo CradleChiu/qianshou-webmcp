@@ -4,6 +4,8 @@ import type {
   JourneyRequest,
   JourneyStep,
   ServiceEnvelope,
+  TransitLegReference,
+  TransitMode,
 } from "@/lib/domain/journey";
 import {
   ExternalServiceError,
@@ -28,9 +30,20 @@ type OtpLeg = {
   duration?: unknown;
   distance?: unknown;
   headsign?: unknown;
-  from?: { name?: unknown };
-  to?: { name?: unknown };
-  route?: { shortName?: unknown; longName?: unknown } | null;
+  from?: {
+    name?: unknown;
+    stop?: { gtfsId?: unknown; name?: unknown } | null;
+  };
+  to?: {
+    name?: unknown;
+    stop?: { gtfsId?: unknown; name?: unknown } | null;
+  };
+  route?: {
+    gtfsId?: unknown;
+    shortName?: unknown;
+    longName?: unknown;
+  } | null;
+  trip?: { gtfsId?: unknown; directionId?: unknown } | null;
 };
 
 type OtpItinerary = {
@@ -88,9 +101,10 @@ export const OTP_PLAN_QUERY = `
             duration
             distance
             headsign
-            from { name }
-            to { name }
-            route { shortName longName }
+            from { name stop { gtfsId name } }
+            to { name stop { gtfsId name } }
+            route { gtfsId shortName longName }
+            trip { gtfsId directionId }
           }
         }
       }
@@ -104,6 +118,75 @@ function readText(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function gtfsEntityId(value: unknown): string | null {
+  const id = readText(value);
+  if (!id) return null;
+  const separator = id.indexOf(":");
+  return separator >= 0 ? id.slice(separator + 1) : id;
+}
+
+function readDirection(value: unknown): 0 | 1 | null {
+  if (value === 0 || value === "0") return 0;
+  if (value === 1 || value === "1") return 1;
+  return null;
+}
+
+function readTransitMode(value: unknown): TransitMode | null {
+  const mode = readText(value);
+  if (
+    mode === "BUS" ||
+    mode === "SUBWAY" ||
+    mode === "RAIL" ||
+    mode === "TRAM" ||
+    mode === "FERRY"
+  ) {
+    return mode;
+  }
+  return null;
+}
+
+function tdxCityFromStopUid(
+  stopUid: string | null,
+): "Taipei" | "NewTaipei" | null {
+  if (stopUid?.startsWith("TPE")) return "Taipei";
+  if (stopUid?.startsWith("NWT")) return "NewTaipei";
+  return null;
+}
+
+function firstTransitLeg(legs: OtpLeg[]): TransitLegReference | null {
+  const leg = legs.find((candidate) => candidate.transitLeg === true);
+  const mode = readTransitMode(leg?.mode);
+  if (!leg || !mode) return null;
+
+  const stopName =
+    readText(leg.from?.stop?.name) ??
+    readText(leg.from?.name) ??
+    "上車站牌未知";
+  const routeName =
+    readText(leg.route?.shortName) ??
+    readText(leg.route?.longName) ??
+    modeName(mode);
+  const direction = readDirection(leg.trip?.directionId);
+  const stopUid = gtfsEntityId(leg.from?.stop?.gtfsId);
+  const rawRouteId = gtfsEntityId(leg.route?.gtfsId);
+  const directionSuffix = direction === null ? null : `_${direction}`;
+  const routeUid =
+    rawRouteId && directionSuffix && rawRouteId.endsWith(directionSuffix)
+      ? rawRouteId.slice(0, -directionSuffix.length)
+      : rawRouteId;
+
+  return {
+    mode,
+    stopName,
+    routeName,
+    headsign: readText(leg.headsign),
+    stopUid,
+    routeUid,
+    direction,
+    city: mode === "BUS" ? tdxCityFromStopUid(stopUid) : null,
+  };
 }
 
 function modeName(mode: string): string {
@@ -330,6 +413,7 @@ export class OtpClient {
         walkingMinutes: Math.ceil(walkTime / 60),
         transfers: Math.max(0, Math.round(transfers)),
         steps,
+        firstTransitLeg: firstTransitLeg(legs),
       },
     };
   }
