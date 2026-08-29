@@ -3,6 +3,23 @@ import type { ServerFetch } from "./http";
 import { createJourneyServices } from "./journey-service";
 
 describe("journey service orchestration", () => {
+  it("常用地點搜尋直接回傳唯一候選，不呼叫外部服務", async () => {
+    const fetcher: ServerFetch = vi.fn();
+    const services = createJourneyServices({ env: {}, fetcher });
+
+    const result = await services.searchPlaces("台北車站");
+
+    expect(result.status).toBe("ok");
+    expect(result.data.candidates).toEqual([
+      expect.objectContaining({
+        name: "臺北車站",
+        source: "known",
+        city: "Taipei",
+      }),
+    ]);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("未設定金鑰時清楚使用開發階段情境資料", async () => {
     const fetcher: ServerFetch = vi.fn();
     const services = createJourneyServices({ env: {}, fetcher });
@@ -180,7 +197,32 @@ describe("journey service orchestration", () => {
     });
 
     expect(result.status).toBe("unavailable");
-    expect(result.limitations[0]).toContain("第一階段路線只支援");
+    expect(result.limitations[0]).toContain("先搜尋並確認");
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("已確認座標搭配名稱時，OTP 結果不暴露座標", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json({ data: { planConnection: { edges: [] } } }),
+    );
+    const services = createJourneyServices({
+      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      fetcher,
+    });
+
+    const result = await services.planAccessibleTrip({
+      origin: "25.052000,121.543000",
+      destination: "25.041000,121.516000",
+      originLabel: "松山機場",
+      destinationLabel: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.data.summary).toBe("從松山機場到臺大醫院：目前無法規劃");
+    expect(result.data.summary).not.toContain("25.052");
   });
 });

@@ -33,6 +33,14 @@ function readPlanRequest(value: unknown): JourneyRequest {
   return {
     origin: readString(value, "origin", "起點"),
     destination: readString(value, "destination", "目的地"),
+    originLabel:
+      typeof value.originLabel === "string"
+        ? readString(value, "originLabel", "起點名稱")
+        : undefined,
+    destinationLabel:
+      typeof value.destinationLabel === "string"
+        ? readString(value, "destinationLabel", "目的地名稱")
+        : undefined,
     preferences: {
       minimizeWalking: value.preferences.minimizeWalking !== false,
       minimizeTransfers: value.preferences.minimizeTransfers !== false,
@@ -107,6 +115,11 @@ export async function POST(request: Request) {
     if (body.action === "plan") {
       return Response.json(
         await journeyServices.planAccessibleTrip(readPlanRequest(body.request)),
+      );
+    }
+    if (body.action === "places") {
+      return Response.json(
+        await journeyServices.searchPlaces(readString(body, "query", "地點")),
       );
     }
     if (body.action === "arrivals") {

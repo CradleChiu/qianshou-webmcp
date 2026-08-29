@@ -1,6 +1,7 @@
 import type {
   JourneyPlan,
   JourneyRequest,
+  PlaceSearchResult,
   ServiceEnvelope,
   VehicleArrivalRequest,
   VehicleArrivalResult,
@@ -9,6 +10,7 @@ import type {
 
 type JourneyAction =
   | { action: "plan"; request: JourneyRequest }
+  | { action: "places"; query: string }
   | ({ action: "arrivals" } & VehicleArrivalRequest)
   | { action: "weather"; location: string };
 
@@ -37,6 +39,12 @@ export function planAccessibleTrip(
   request: JourneyRequest,
 ): Promise<ServiceEnvelope<JourneyPlan>> {
   return requestJourney<JourneyPlan>({ action: "plan", request });
+}
+
+export function searchPlaces(
+  query: string,
+): Promise<ServiceEnvelope<PlaceSearchResult>> {
+  return requestJourney<PlaceSearchResult>({ action: "places", query });
 }
 
 export function getVehicleArrivals(

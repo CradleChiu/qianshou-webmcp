@@ -265,7 +265,7 @@ def run_desktop(browser, results):
         "相同起訖點錯誤",
         "PASS"
         if same_place["focus"]["id"] == "destination"
-        and "起點和目的地相同" in same_place["alert"]
+        and "起點和目的地是同一個地點" in same_place["alert"]
         else "FAIL",
         same_place,
     )

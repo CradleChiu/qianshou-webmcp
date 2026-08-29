@@ -26,6 +26,56 @@ function createClient(fetcher: ServerFetch) {
 }
 
 describe("TDX adapter", () => {
+  it("搜尋臺北與新北官方站點，去除重複 StopUID 並快取", async () => {
+    const requests: string[] = [];
+    const fetcher: ServerFetch = vi.fn(async (input) => {
+      const url = input.toString();
+      requests.push(url);
+      if (url.endsWith("/token")) {
+        return jsonResponse({ access_token: "access-token", expires_in: 3_600 });
+      }
+      if (url.includes("/City/Taipei")) {
+        return jsonResponse([
+          {
+            StopUID: "TPE1001",
+            StopName: { Zh_tw: "市政府" },
+            StopPosition: { PositionLat: 25.041, PositionLon: 121.565 },
+            StopAddress: "市府路1號",
+          },
+          {
+            StopUID: "TPE1001",
+            StopName: { Zh_tw: "市政府" },
+            StopPosition: { PositionLat: 25.041, PositionLon: 121.565 },
+          },
+        ]);
+      }
+      return jsonResponse([
+        {
+          StopUID: "NWT2001",
+          StopName: { Zh_tw: "市政府" },
+          StopPosition: { PositionLat: 25.012, PositionLon: 121.465 },
+        },
+      ]);
+    });
+    const client = createClient(fetcher);
+
+    const first = await client.searchTransitStops("市政府");
+    await client.searchTransitStops("市政府");
+
+    expect(first).toHaveLength(2);
+    expect(first[0]).toMatchObject({
+      id: "tdx:TPE1001",
+      source: "TDX",
+      city: "Taipei",
+      description: "臺北市・市府路1號",
+    });
+    expect(requests).toHaveLength(3);
+    expect(requests.filter((url) => url.includes("/Bus/Stop/City/"))).toHaveLength(2);
+    expect(new URL(requests[1]).searchParams.get("$filter")).toBe(
+      "contains(StopName/Zh_tw,'市政府')",
+    );
+  });
+
   it("快取 access token 與 30 秒到站結果，並映射成可辨識來源", async () => {
     const requests: Array<{ url: string; init?: ServerRequestInit }> = [];
     const fetcher: ServerFetch = vi.fn(async (input, init) => {

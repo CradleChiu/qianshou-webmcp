@@ -4,6 +4,8 @@ import {
   normalizeJourneyRequest,
   type JourneyPlan,
   type JourneyRequest,
+  type PlaceCandidate,
+  type PlaceSearchResult,
   type ServiceEnvelope,
   type TransitLegReference,
   type VehicleArrivalRequest,
@@ -16,9 +18,14 @@ import {
   resolveOtpPlace,
   resolveDoubleTaipeiTransitPlace,
   resolveShortTermWeatherPlace,
+  searchKnownPlaces,
 } from "@/lib/server/place-resolver";
 import { TdxClient, type TdxConfig } from "@/lib/server/tdx";
 import { OtpClient, type OtpConfig } from "@/lib/server/otp";
+import {
+  NominatimClient,
+  type NominatimConfig,
+} from "@/lib/server/nominatim";
 
 type Environment = Record<string, string | undefined>;
 
@@ -26,6 +33,7 @@ type JourneyServiceDependencies = {
   env?: Environment;
   fetcher?: ServerFetch;
   now?: () => Date;
+  sleep?: (milliseconds: number) => Promise<void>;
 };
 
 function runtimeEnvironment(): Environment {
@@ -39,6 +47,20 @@ function runtimeEnvironment(): Environment {
     OTP_GRAPHQL_URL: process.env.OTP_GRAPHQL_URL,
     OTP_TIMEOUT_MS: process.env.OTP_TIMEOUT_MS,
     UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
+    NOMINATIM_SEARCH_URL: process.env.NOMINATIM_SEARCH_URL,
+    NOMINATIM_USER_AGENT: process.env.NOMINATIM_USER_AGENT,
+  };
+}
+
+function nominatimConfig(env: Environment): NominatimConfig {
+  return {
+    searchUrl:
+      env.NOMINATIM_SEARCH_URL?.trim() ||
+      "https://nominatim.openstreetmap.org/search",
+    userAgent:
+      env.NOMINATIM_USER_AGENT?.trim() ||
+      "Qianshou-Guolu-Zou/0.1 (Taiwan accessible trip planner)",
+    timeoutMs: timeoutFrom(env),
   };
 }
 
@@ -129,6 +151,24 @@ function failureMessage(service: string, error: unknown): string {
   return `${service}目前無法提供資料，請稍後再試。`;
 }
 
+function normalizedPlaceName(value: string): string {
+  return value.replaceAll("台", "臺").replace(/[\s()（）]/g, "").toLocaleLowerCase("zh-Hant-TW");
+}
+
+function dedupePlaceCandidates(candidates: PlaceCandidate[]): PlaceCandidate[] {
+  return candidates.filter((candidate, index, all) => {
+    const name = normalizedPlaceName(candidate.name);
+    return (
+      all.findIndex((other) => {
+        if (normalizedPlaceName(other.name) !== name) return false;
+        const latitudeDifference = Math.abs(other.latitude - candidate.latitude);
+        const longitudeDifference = Math.abs(other.longitude - candidate.longitude);
+        return latitudeDifference < 0.00035 && longitudeDifference < 0.00035;
+      }) === index
+    );
+  });
+}
+
 export function createJourneyServices(
   dependencies: JourneyServiceDependencies = {},
 ) {
@@ -137,6 +177,11 @@ export function createJourneyServices(
   const tdxSettings = tdxConfig(env);
   const cwaSettings = cwaConfig(env);
   const otpSettings = otpConfig(env);
+  const nominatim = new NominatimClient(nominatimConfig(env), {
+    fetcher: dependencies.fetcher,
+    now,
+    sleep: dependencies.sleep,
+  });
   const tdx = tdxSettings
     ? new TdxClient(tdxSettings, {
         fetcher: dependencies.fetcher,
@@ -155,20 +200,125 @@ export function createJourneyServices(
   });
 
   return {
+    async searchPlaces(
+      query: string,
+    ): Promise<ServiceEnvelope<PlaceSearchResult>> {
+      const normalizedQuery = query.trim().replaceAll("台", "臺").replace(/\s+/g, " ");
+      if (normalizedQuery.length < 2) throw new Error("地點至少需要兩個字。");
+      if (normalizedQuery.length > 80) throw new Error("地點不能超過 80 個字。");
+
+      const knownCandidates = searchKnownPlaces(normalizedQuery);
+      const coordinate = resolveOtpPlace(normalizedQuery);
+      const userCoordinate =
+        coordinate?.coordinateSource === "user-coordinate" ? coordinate : null;
+      const coordinateCandidates: PlaceCandidate[] = userCoordinate
+        ? [
+            {
+              id: `coordinate:${userCoordinate.latitude},${userCoordinate.longitude}`,
+              name: "你指定的座標",
+              description: normalizedQuery,
+              latitude: userCoordinate.latitude,
+              longitude: userCoordinate.longitude,
+              kind: "address",
+              source: "known",
+              city: null,
+              stopUid: null,
+            },
+          ]
+        : [];
+      if (knownCandidates.length || coordinateCandidates.length) {
+        const candidates = knownCandidates.length
+          ? knownCandidates
+          : coordinateCandidates;
+        const retrievedAt = now().toISOString();
+        return {
+          status: "ok",
+          generatedAt: retrievedAt,
+          source: {
+            name: "已確認的常用地點",
+            observedAt: null,
+            retrievedAt,
+            kind: "integrated",
+            freshness: "unknown",
+          },
+          limitations: [],
+          data: { query: normalizedQuery, candidates },
+        };
+      }
+
+      const [tdxResult, osmResult] = await Promise.allSettled([
+        tdx ? tdx.searchTransitStops(normalizedQuery) : Promise.resolve([]),
+        nominatim.searchPlaces(normalizedQuery),
+      ]);
+      const tdxCandidates = tdxResult.status === "fulfilled" ? tdxResult.value : [];
+      const osmCandidates = osmResult.status === "fulfilled" ? osmResult.value : [];
+      const candidates = dedupePlaceCandidates([
+        ...tdxCandidates,
+        ...osmCandidates,
+      ]).slice(0, 6);
+      const failures = [
+        ...(!tdx ? ["尚未設定 TDX 金鑰，因此本次只搜尋 OpenStreetMap 地點。"] : []),
+        ...(tdxResult.status === "rejected" ? [failureMessage("TDX 站點搜尋", tdxResult.reason)] : []),
+        ...(osmResult.status === "rejected" ? [failureMessage("OpenStreetMap 地點搜尋", osmResult.reason)] : []),
+      ];
+      const retrievedAt = now().toISOString();
+      return {
+        status: candidates.length ? (failures.length ? "partial" : "ok") : "unavailable",
+        generatedAt: retrievedAt,
+        source: {
+          name: "TDX 站點＋OpenStreetMap Nominatim",
+          observedAt: null,
+          retrievedAt,
+          kind: "integrated",
+          url: "https://nominatim.org/release-docs/latest/api/Search/",
+          freshness: "unknown",
+        },
+        limitations: candidates.length
+          ? [
+              "同名地點可能位於不同地址；規劃前請確認候選地點。",
+              "OpenStreetMap 地點資料可能有缺漏，TDX 站點也不代表入口無障礙。",
+              ...failures,
+            ]
+          : [
+              "找不到符合的雙北地點，請加入行政區、道路或站名後再試。",
+              ...failures,
+            ],
+        data: { query: normalizedQuery, candidates },
+      };
+    },
+
     async planAccessibleTrip(
       request: JourneyRequest,
     ): Promise<ServiceEnvelope<JourneyPlan>> {
       const normalizedRequest = normalizeJourneyRequest(request);
-      const origin = resolveOtpPlace(normalizedRequest.origin);
-      const destination = resolveOtpPlace(normalizedRequest.destination);
+      const resolvedOrigin = resolveOtpPlace(normalizedRequest.origin);
+      const resolvedDestination = resolveOtpPlace(normalizedRequest.destination);
+      const origin =
+        resolvedOrigin && normalizedRequest.originLabel
+          ? {
+              ...resolvedOrigin,
+              canonicalName: normalizedRequest.originLabel,
+              coordinateSource: "place-search" as const,
+            }
+          : resolvedOrigin;
+      const destination =
+        resolvedDestination && normalizedRequest.destinationLabel
+          ? {
+              ...resolvedDestination,
+              canonicalName: normalizedRequest.destinationLabel,
+              coordinateSource: "place-search" as const,
+            }
+          : resolvedDestination;
       const originName =
-        origin?.coordinateSource === "user-coordinate"
+        normalizedRequest.originLabel ??
+        (origin?.coordinateSource === "user-coordinate"
           ? "你指定的起點"
-          : normalizedRequest.origin;
+          : normalizedRequest.origin);
       const destinationName =
-        destination?.coordinateSource === "user-coordinate"
+        normalizedRequest.destinationLabel ??
+        (destination?.coordinateSource === "user-coordinate"
           ? "你指定的目的地"
-          : normalizedRequest.destination;
+          : normalizedRequest.destination);
       const emptyPlan: JourneyPlan = {
         summary: `從${originName}到${destinationName}：目前無法規劃`,
         estimatedMinutes: 0,
@@ -183,7 +333,7 @@ export function createJourneyServices(
           emptyPlan,
           "OpenTripPlanner（TDX GTFS＋© OpenStreetMap contributors）",
           "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/",
-          "第一階段路線只支援臺北車站、臺大醫院、市政府、板橋車站，或臺灣範圍內的「緯度,經度」。",
+          "此地點尚未解析成可規劃座標；請先搜尋並確認起點與目的地。",
           now(),
           "integrated",
         );

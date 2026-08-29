@@ -5,10 +5,13 @@ import {
   getVehicleArrivals,
   getWeatherSafetyBrief,
   planAccessibleTrip,
+  searchPlaces,
 } from "@/lib/client/journey-api";
 import type {
   InformationSource,
   JourneyPlan,
+  PlaceCandidate,
+  PlaceSearchResult,
   ServiceEnvelope,
   VehicleArrivalResult,
   WeatherBrief,
@@ -22,12 +25,26 @@ import {
 type ToolStatus = "checking" | "available" | "unavailable" | "failed";
 type SpeechStatus = "idle" | "speaking" | "paused";
 type InvalidField = "origin" | "destination" | null;
+type PlaceField = "origin" | "destination";
+
+type PlaceSelection = {
+  inputValue: string;
+  candidate: PlaceCandidate;
+};
+
+type PlaceChoice = {
+  query: string;
+  result: ServiceEnvelope<PlaceSearchResult>;
+};
 
 type Results = {
   plan?: ServiceEnvelope<JourneyPlan>;
   arrivals?: ServiceEnvelope<VehicleArrivalResult>;
   weather?: ServiceEnvelope<WeatherBrief>;
 };
+
+type PlaceSelections = Partial<Record<PlaceField, PlaceSelection>>;
+type PlaceChoices = Partial<Record<PlaceField, PlaceChoice>>;
 
 const statusText: Record<ToolStatus, string> = {
   checking: "正在準備頁面",
@@ -72,6 +89,26 @@ function speechFailureMessage(error: SpeechSynthesisErrorCode): string {
   return "裝置目前無法完成語音朗讀，請使用螢幕閱讀器閱讀行程。";
 }
 
+function coordinateOf(candidate: PlaceCandidate): string {
+  return `${candidate.latitude.toFixed(6)},${candidate.longitude.toFixed(6)}`;
+}
+
+function weatherLocationOf(candidate: PlaceCandidate): string {
+  const county =
+    candidate.city === "Taipei"
+      ? "臺北市"
+      : candidate.city === "NewTaipei"
+        ? "新北市"
+        : "";
+  return `${county}${candidate.name} ${candidate.description}`.trim();
+}
+
+function candidateSourceText(source: PlaceCandidate["source"]): string {
+  if (source === "TDX") return "TDX 官方站點";
+  if (source === "OpenStreetMap") return "OpenStreetMap";
+  return "已確認地點";
+}
+
 function SourceMetadata({ source }: { source: InformationSource }) {
   return (
     <div className="source-metadata">
@@ -114,8 +151,11 @@ export function JourneyWorkspace() {
   const [error, setError] = useState("");
   const [invalidField, setInvalidField] = useState<InvalidField>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [placeSelections, setPlaceSelections] = useState<PlaceSelections>({});
+  const [placeChoices, setPlaceChoices] = useState<PlaceChoices>({});
   const originRef = useRef<HTMLInputElement>(null);
   const destinationRef = useRef<HTMLInputElement>(null);
+  const firstPlaceChoiceRef = useRef<HTMLButtonElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
@@ -140,6 +180,11 @@ export function JourneyWorkspace() {
   }, []);
 
   useEffect(() => {
+    if (!placeChoices.origin && !placeChoices.destination) return;
+    window.requestAnimationFrame(() => firstPlaceChoiceRef.current?.focus());
+  }, [placeChoices]);
+
+  useEffect(() => {
     return () => {
       if ("speechSynthesis" in window) {
         const utterance = activeUtteranceRef.current;
@@ -155,8 +200,61 @@ export function JourneyWorkspace() {
 
   useEffect(() => {
     const handleToolResult = (event: Event) => {
-      const { toolName, result } = (event as CustomEvent<WebMcpResultDetail>)
+      const { toolName, result, input } = (event as CustomEvent<WebMcpResultDetail>)
         .detail;
+
+      if (toolName === "search_places") {
+        const field = input?.field;
+        const query = typeof input?.query === "string" ? input.query : "";
+        const envelope = result as ServiceEnvelope<PlaceSearchResult>;
+        if (
+          (field === "origin" || field === "destination") &&
+          query &&
+          Array.isArray(envelope.data?.candidates)
+        ) {
+          const candidates = envelope.data.candidates;
+          const setInput = field === "origin" ? setOrigin : setDestination;
+          setInput(query);
+          setPlaceSelections((current) => ({ ...current, [field]: undefined }));
+          setPlaceChoices((current) => ({
+            ...current,
+            [field]: { query, result: envelope },
+          }));
+          if (candidates.length === 1) {
+            setPlaceSelections((current) => ({
+              ...current,
+              [field]: { inputValue: query, candidate: candidates[0] },
+            }));
+            setPlaceChoices((current) => ({ ...current, [field]: undefined }));
+          }
+        }
+      }
+
+      if (toolName === "plan_accessible_trip" && input) {
+        setPlaceSelections({});
+        setPlaceChoices({});
+        const originValue =
+          typeof input.originLabel === "string"
+            ? input.originLabel
+            : typeof input.origin === "string"
+              ? input.origin
+              : null;
+        const destinationValue =
+          typeof input.destinationLabel === "string"
+            ? input.destinationLabel
+            : typeof input.destination === "string"
+              ? input.destination
+              : null;
+        if (originValue) setOrigin(originValue);
+        if (destinationValue) setDestination(destinationValue);
+        if (typeof input.minimizeWalking === "boolean") {
+          setMinimizeWalking(input.minimizeWalking);
+        }
+        if (typeof input.minimizeTransfers === "boolean") {
+          setMinimizeTransfers(input.minimizeTransfers);
+        }
+        if (typeof input.stepFree === "boolean") setStepFree(input.stepFree);
+      }
 
       setResults((current) => {
         if (toolName === "plan_accessible_trip") {
@@ -177,7 +275,11 @@ export function JourneyWorkspace() {
         return current;
       });
 
-      setAnnouncement(`Agent 已完成：${toolName}`);
+      setAnnouncement(
+        toolName === "search_places"
+          ? "Agent 已搜尋地點；若有多個候選，請先確認正確地點。"
+          : `Agent 已完成：${toolName}`,
+      );
     };
 
     window.addEventListener(WEBMCP_RESULT_EVENT, handleToolResult);
@@ -207,24 +309,91 @@ export function JourneyWorkspace() {
       return;
     }
 
-    if (normalizedOrigin === normalizedDestination) {
-      setError("起點和目的地相同，請確認後再試一次。");
-      setInvalidField("destination");
-      setAnnouncement("行程未完成：起點和目的地相同，請確認輸入。");
-      window.requestAnimationFrame(() => destinationRef.current?.focus());
-      return;
-    }
-
     setOrigin(normalizedOrigin);
     setDestination(normalizedDestination);
     setBusy(true);
-    setAnnouncement("正在整理行程、到站與天氣資訊。");
+    setAnnouncement("正在搜尋並確認起點與目的地。");
 
     try {
-      const weatherPromise = getWeatherSafetyBrief(normalizedDestination);
+      const existingOrigin =
+        placeSelections.origin?.inputValue === normalizedOrigin
+          ? placeSelections.origin.candidate
+          : undefined;
+      const existingDestination =
+        placeSelections.destination?.inputValue === normalizedDestination
+          ? placeSelections.destination.candidate
+          : undefined;
+      const [originSearch, destinationSearch] = await Promise.all([
+        existingOrigin ? null : searchPlaces(normalizedOrigin),
+        existingDestination ? null : searchPlaces(normalizedDestination),
+      ]);
+      const originCandidates = existingOrigin
+        ? [existingOrigin]
+        : (originSearch?.data.candidates ?? []);
+      const destinationCandidates = existingDestination
+        ? [existingDestination]
+        : (destinationSearch?.data.candidates ?? []);
+
+      if (!originCandidates.length || !destinationCandidates.length) {
+        const missing = !originCandidates.length ? "起點" : "目的地";
+        setError(`找不到可規劃的${missing}，請加入行政區、道路或站名後再試。`);
+        setInvalidField(!originCandidates.length ? "origin" : "destination");
+        setAnnouncement(`行程未完成：找不到可確認的${missing}。`);
+        return;
+      }
+
+      const nextChoices: PlaceChoices = {};
+      if (!existingOrigin && originCandidates.length > 1 && originSearch) {
+        nextChoices.origin = { query: normalizedOrigin, result: originSearch };
+      }
+      if (
+        !existingDestination &&
+        destinationCandidates.length > 1 &&
+        destinationSearch
+      ) {
+        nextChoices.destination = {
+          query: normalizedDestination,
+          result: destinationSearch,
+        };
+      }
+      if (nextChoices.origin || nextChoices.destination) {
+        setPlaceChoices(nextChoices);
+        setAnnouncement("找到多個同名或相近地點，請先選擇正確的起點或目的地。");
+        return;
+      }
+
+      const selectedOrigin = existingOrigin ?? originCandidates[0];
+      const selectedDestination =
+        existingDestination ?? destinationCandidates[0];
+      const sameLocation =
+        Math.abs(selectedOrigin.latitude - selectedDestination.latitude) < 0.00001 &&
+        Math.abs(selectedOrigin.longitude - selectedDestination.longitude) < 0.00001;
+      if (sameLocation) {
+        setError("起點和目的地是同一個地點，請確認後再試一次。");
+        setInvalidField("destination");
+        setAnnouncement("行程未完成：起點和目的地相同。");
+        window.requestAnimationFrame(() => destinationRef.current?.focus());
+        return;
+      }
+
+      setPlaceSelections({
+        origin: { inputValue: normalizedOrigin, candidate: selectedOrigin },
+        destination: {
+          inputValue: normalizedDestination,
+          candidate: selectedDestination,
+        },
+      });
+      setPlaceChoices({});
+      setAnnouncement("地點已確認，正在整理行程、到站與天氣資訊。");
+
+      const weatherPromise = getWeatherSafetyBrief(
+        weatherLocationOf(selectedDestination),
+      );
       const plan = await planAccessibleTrip({
-        origin: normalizedOrigin,
-        destination: normalizedDestination,
+        origin: coordinateOf(selectedOrigin),
+        destination: coordinateOf(selectedDestination),
+        originLabel: selectedOrigin.name,
+        destinationLabel: selectedDestination.name,
         preferences: { minimizeWalking, minimizeTransfers, stepFree },
       });
       const arrivals =
@@ -233,7 +402,7 @@ export function JourneyWorkspace() {
           : await getVehicleArrivals({
               stopName:
                 plan.data.firstTransitLeg?.stopName ??
-                `${normalizedOrigin}附近站牌`,
+                `${selectedOrigin.name}附近站牌`,
               tripLeg: plan.data.firstTransitLeg,
             });
       const weather = await weatherPromise;
@@ -358,6 +527,85 @@ export function JourneyWorkspace() {
     setAnnouncement("已停止朗讀。");
   }
 
+  function updatePlaceText(field: PlaceField, value: string) {
+    if (field === "origin") setOrigin(value);
+    else setDestination(value);
+    setPlaceSelections((current) => ({ ...current, [field]: undefined }));
+    setPlaceChoices((current) => ({ ...current, [field]: undefined }));
+    if (invalidField === field) {
+      setInvalidField(null);
+      setError("");
+    }
+  }
+
+  function selectPlace(field: PlaceField, candidate: PlaceCandidate) {
+    const inputValue = candidate.name;
+    if (field === "origin") setOrigin(inputValue);
+    else setDestination(inputValue);
+    setPlaceSelections((current) => ({
+      ...current,
+      [field]: { inputValue, candidate },
+    }));
+    setPlaceChoices((current) => ({ ...current, [field]: undefined }));
+    setError("");
+    setInvalidField(null);
+    setAnnouncement(
+      `已選擇${field === "origin" ? "起點" : "目的地"}：${candidate.name}。`,
+    );
+  }
+
+  function renderPlaceConfirmation(field: PlaceField) {
+    const choice = placeChoices[field];
+    const inputValue = field === "origin" ? origin : destination;
+    const selection = placeSelections[field];
+    const selected =
+      selection?.inputValue === inputValue.trim() ? selection.candidate : null;
+    if (!choice && !selected) return null;
+
+    return (
+      <div className="place-confirmation">
+        {selected ? (
+          <p className="selected-place" role="status">
+            <strong>已確認：{selected.name}</strong>
+            <span>{selected.description}</span>
+          </p>
+        ) : null}
+        {choice ? (
+          <fieldset className="place-choices">
+            <legend>
+              「{choice.query}」有 {choice.result.data.candidates.length} 個候選，
+              請選擇正確的{field === "origin" ? "起點" : "目的地"}
+            </legend>
+            {choice.result.data.candidates.length ? (
+              <div className="place-choice-list">
+                {choice.result.data.candidates.map((candidate, index) => (
+                  <button
+                    key={candidate.id}
+                    ref={
+                      index === 0 &&
+                      (field === "origin" || !placeChoices.origin)
+                        ? firstPlaceChoiceRef
+                        : undefined
+                    }
+                    type="button"
+                    className="place-choice"
+                    onClick={() => selectPlace(field, candidate)}
+                  >
+                    <span className="place-choice-name">{candidate.name}</span>
+                    <span>{candidate.description}</span>
+                    <small>{candidateSourceText(candidate.source)}</small>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p>{choice.result.limitations[0]}</p>
+            )}
+          </fieldset>
+        ) : null}
+      </div>
+    );
+  }
+
   const hasResults = Boolean(results.plan || results.arrivals || results.weather);
   const hasFixtureResults = Object.values(results).some(
     (result) => result?.source.kind === "development-fixture",
@@ -424,13 +672,7 @@ export function JourneyWorkspace() {
                   aria-describedby={`origin-hint${invalidField === "origin" ? " form-error" : ""}`}
                   aria-invalid={invalidField === "origin"}
                   value={origin}
-                  onChange={(event) => {
-                    setOrigin(event.target.value);
-                    if (invalidField === "origin") {
-                      setInvalidField(null);
-                      setError("");
-                    }
-                  }}
+                  onChange={(event) => updatePlaceText("origin", event.target.value)}
                   autoComplete="street-address"
                   enterKeyHint="next"
                   maxLength={80}
@@ -439,6 +681,7 @@ export function JourneyWorkspace() {
                 <p id="origin-hint" className="field-hint">
                   例如：台北車站、住家附近的站牌
                 </p>
+                {renderPlaceConfirmation("origin")}
               </div>
 
               <div className="field-group">
@@ -450,13 +693,9 @@ export function JourneyWorkspace() {
                   aria-describedby={`destination-hint${invalidField === "destination" ? " form-error" : ""}`}
                   aria-invalid={invalidField === "destination"}
                   value={destination}
-                  onChange={(event) => {
-                    setDestination(event.target.value);
-                    if (invalidField === "destination") {
-                      setInvalidField(null);
-                      setError("");
-                    }
-                  }}
+                  onChange={(event) =>
+                    updatePlaceText("destination", event.target.value)
+                  }
                   autoComplete="street-address"
                   enterKeyHint="done"
                   maxLength={80}
@@ -465,6 +704,7 @@ export function JourneyWorkspace() {
                 <p id="destination-hint" className="field-hint">
                   例如：台大醫院、附近的區公所
                 </p>
+                {renderPlaceConfirmation("destination")}
               </div>
 
               <fieldset className="preferences">

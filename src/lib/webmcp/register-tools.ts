@@ -2,6 +2,7 @@ import {
   getVehicleArrivals,
   getWeatherSafetyBrief,
   planAccessibleTrip,
+  searchPlaces,
 } from "@/lib/client/journey-api";
 import type {
   JourneyPreferences,
@@ -15,6 +16,7 @@ export const WEBMCP_RESULT_EVENT = "qianshou:webmcp-result";
 export type WebMcpResultDetail = {
   toolName: string;
   result: unknown;
+  input?: Record<string, unknown>;
 };
 
 type RegistrationStatus = "available" | "unavailable" | "failed";
@@ -55,6 +57,18 @@ function readNullableString(
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function readOptionalString(
+  input: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = input[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${key} 必須是非空白文字。`);
+  }
+  return value.trim();
+}
+
 function readTransitLeg(input: unknown): TransitLegReference {
   if (!isRecord(input)) throw new Error("行程路段格式錯誤。");
   const allowedModes: TransitMode[] = ["BUS", "SUBWAY", "RAIL", "TRAM", "FERRY"];
@@ -80,10 +94,14 @@ function readTransitLeg(input: unknown): TransitLegReference {
   };
 }
 
-function publishResult(toolName: string, result: unknown) {
+function publishResult(
+  toolName: string,
+  result: unknown,
+  input?: Record<string, unknown>,
+) {
   window.dispatchEvent(
     new CustomEvent<WebMcpResultDetail>(WEBMCP_RESULT_EVENT, {
-      detail: { toolName, result },
+      detail: { toolName, result, input },
     }),
   );
 }
@@ -109,6 +127,49 @@ export async function registerJourneyTools(): Promise<{
 
   try {
     await modelContext.registerTool({
+      name: "search_places",
+      description:
+        "Search Taipei and New Taipei places using official TDX transit stops and OpenStreetMap. Use this before planning an unfamiliar or ambiguous place. Never guess between multiple candidates; ask the user to confirm one candidate, then pass its latitude/longitude and human-readable name to plan_accessible_trip.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Place, address, landmark, station, or bus stop to search.",
+          },
+          field: {
+            type: "string",
+            enum: ["origin", "destination"],
+            description:
+              "Optional page field to update with the candidates for user confirmation.",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      annotations: readOnlyAnnotations,
+      execute: async (rawInput) => {
+        if (!isRecord(rawInput)) throw new Error("地點搜尋參數格式錯誤。");
+        const field = rawInput.field;
+        if (
+          field !== undefined &&
+          field !== "origin" &&
+          field !== "destination"
+        ) {
+          throw new Error("field 必須是 origin 或 destination。");
+        }
+        const input = {
+          query: readString(rawInput, "query", "地點"),
+          ...(field ? { field } : {}),
+        };
+        const result = await searchPlaces(input.query);
+        publishResult("search_places", result, input);
+        return result;
+      },
+    });
+    names.push("search_places");
+
+    await modelContext.registerTool({
       name: "plan_accessible_trip",
       description:
         "Plan a Taiwan transit trip for the current page, respecting walking, transfer, and step-free preferences. The result updates the visible page and clearly labels unknown accessibility conditions.",
@@ -119,6 +180,16 @@ export async function registerJourneyTools(): Promise<{
           destination: {
             type: "string",
             description: "Trip destination in Taiwan.",
+          },
+          originLabel: {
+            type: "string",
+            description:
+              "Human-readable name of the selected origin when origin is a coordinate returned by search_places.",
+          },
+          destinationLabel: {
+            type: "string",
+            description:
+              "Human-readable name of the selected destination when destination is a coordinate returned by search_places.",
           },
           minimizeWalking: { type: "boolean", default: true },
           minimizeTransfers: { type: "boolean", default: true },
@@ -133,9 +204,11 @@ export async function registerJourneyTools(): Promise<{
           throw new Error("行程參數格式錯誤。");
         }
 
-        const result = await planAccessibleTrip({
+        const input = {
           origin: readString(rawInput, "origin", "起點"),
           destination: readString(rawInput, "destination", "目的地"),
+          originLabel: readOptionalString(rawInput, "originLabel"),
+          destinationLabel: readOptionalString(rawInput, "destinationLabel"),
           preferences: {
             minimizeWalking: readBoolean(rawInput, "minimizeWalking", true),
             minimizeTransfers: readBoolean(
@@ -145,9 +218,15 @@ export async function registerJourneyTools(): Promise<{
             ),
             stepFree: readBoolean(rawInput, "stepFree", true),
           },
-        });
+        };
+        const result = await planAccessibleTrip(input);
 
-        publishResult("plan_accessible_trip", result);
+        publishResult("plan_accessible_trip", result, {
+          ...input,
+          minimizeWalking: input.preferences.minimizeWalking,
+          minimizeTransfers: input.preferences.minimizeTransfers,
+          stepFree: input.preferences.stepFree,
+        });
         return result;
       },
     });
@@ -221,7 +300,7 @@ export async function registerJourneyTools(): Promise<{
               : readTransitLeg(rawInput.tripLeg);
         }
         const result = await getVehicleArrivals(request);
-        publishResult("get_vehicle_arrivals", result);
+        publishResult("get_vehicle_arrivals", result, rawInput);
         return result;
       },
     });
@@ -251,7 +330,7 @@ export async function registerJourneyTools(): Promise<{
         const result = await getWeatherSafetyBrief(
           readString(rawInput, "location", "地點"),
         );
-        publishResult("get_weather_safety_brief", result);
+        publishResult("get_weather_safety_brief", result, rawInput);
         return result;
       },
     });

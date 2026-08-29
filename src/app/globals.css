@@ -224,6 +224,56 @@ a:focus-visible,
 
 .field-hint { margin: 0.35rem 0 0; color: var(--asphalt-soft); font-size: 0.95rem; }
 
+.place-confirmation { margin-top: 0.75rem; }
+
+.selected-place {
+  display: grid;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border-left: 5px solid var(--route);
+  background: var(--mist);
+  gap: 0.2rem;
+  line-height: 1.4;
+}
+
+.selected-place span { color: var(--asphalt-soft); font-size: 0.9rem; }
+
+.place-choices {
+  margin: 0;
+  padding: 1rem;
+  border: 2px solid var(--asphalt);
+  background: #fff9e5;
+}
+
+.place-choices legend {
+  padding: 0 0.4rem;
+  font-weight: 900;
+  line-height: 1.4;
+}
+
+.place-choice-list { display: grid; gap: 0.65rem; }
+
+.place-choice {
+  display: grid;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.75rem 0.85rem;
+  border: 2px solid var(--asphalt);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--asphalt);
+  text-align: left;
+  line-height: 1.4;
+  gap: 0.15rem;
+}
+
+.place-choice:hover, .place-choice:focus-visible {
+  background: var(--tactile);
+}
+
+.place-choice-name { font-size: 1.05rem; font-weight: 900; }
+.place-choice small { color: var(--route); font-weight: 800; }
+
 .preferences {
   display: grid;
   margin: 2rem 0 0;

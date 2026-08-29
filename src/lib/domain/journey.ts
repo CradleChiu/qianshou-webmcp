@@ -7,7 +7,26 @@ export type JourneyPreferences = {
 export type JourneyRequest = {
   origin: string;
   destination: string;
+  originLabel?: string;
+  destinationLabel?: string;
   preferences: JourneyPreferences;
+};
+
+export type PlaceCandidate = {
+  id: string;
+  name: string;
+  description: string;
+  latitude: number;
+  longitude: number;
+  kind: "transit-stop" | "station" | "address" | "landmark";
+  source: "known" | "TDX" | "OpenStreetMap";
+  city: "Taipei" | "NewTaipei" | null;
+  stopUid: string | null;
+};
+
+export type PlaceSearchResult = {
+  query: string;
+  candidates: PlaceCandidate[];
 };
 
 export type InformationSource = {
@@ -115,6 +134,12 @@ function requirePlace(value: string, fieldName: string): string {
 export function normalizeJourneyRequest(request: JourneyRequest): JourneyRequest {
   const origin = requirePlace(request.origin, "起點");
   const destination = requirePlace(request.destination, "目的地");
+  const originLabel = request.originLabel
+    ? requirePlace(request.originLabel, "起點名稱")
+    : undefined;
+  const destinationLabel = request.destinationLabel
+    ? requirePlace(request.destinationLabel, "目的地名稱")
+    : undefined;
 
   if (
     origin.localeCompare(destination, "zh-Hant-TW", {
@@ -124,7 +149,7 @@ export function normalizeJourneyRequest(request: JourneyRequest): JourneyRequest
     throw new Error("起點和目的地相同，請確認後再試一次。");
   }
 
-  return { ...request, origin, destination };
+  return { ...request, origin, destination, originLabel, destinationLabel };
 }
 
 export async function planAccessibleTrip(

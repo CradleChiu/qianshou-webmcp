@@ -1,4 +1,5 @@
 import type {
+  PlaceCandidate,
   ServiceEnvelope,
   TransitLegReference,
   VehicleArrival,
@@ -40,6 +41,13 @@ type TdxArrivalRecord = {
   UpdateTime?: unknown;
 };
 
+type TdxStopRecord = {
+  StopUID?: unknown;
+  StopName?: { Zh_tw?: unknown };
+  StopPosition?: { PositionLat?: unknown; PositionLon?: unknown };
+  StopAddress?: unknown;
+};
+
 const TDX_DOCUMENTATION_URL =
   "https://tdx.transportdata.tw/api-service/swagger";
 
@@ -76,6 +84,10 @@ export class TdxClient {
   private readonly arrivalsCache = new Map<
     string,
     { value: ServiceEnvelope<VehicleArrivalResult>; expiresAt: number }
+  >();
+  private readonly placeCache = new Map<
+    string,
+    { value: PlaceCandidate[]; expiresAt: number }
   >();
 
   constructor(
@@ -154,6 +166,124 @@ export class TdxClient {
     }
 
     return data as TdxArrivalRecord[];
+  }
+
+  private async stopRecords(
+    city: "Taipei" | "NewTaipei",
+    query: string,
+    token: string,
+  ): Promise<TdxStopRecord[]> {
+    const base = this.config.apiBaseUrl.replace(/\/$/, "");
+    const url = new URL(`${base}/v2/Bus/Stop/City/${city}`);
+    const escapedQuery = query.replaceAll("'", "''");
+    url.searchParams.set("$filter", `contains(StopName/Zh_tw,'${escapedQuery}')`);
+    url.searchParams.set(
+      "$select",
+      "StopUID,StopName,StopPosition,StopAddress",
+    );
+    url.searchParams.set("$top", "8");
+    url.searchParams.set("$format", "JSON");
+
+    const { data } = await fetchJson<unknown>(
+      "TDX 站點搜尋",
+      this.fetcher,
+      url,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/json",
+        },
+        cache: "no-store",
+      },
+      this.config.timeoutMs,
+    );
+    if (!Array.isArray(data)) {
+      throw new ExternalServiceError(
+        "TDX 站點搜尋",
+        "invalid-response",
+        "TDX 站點搜尋回應不是預期的陣列格式。",
+      );
+    }
+    return data as TdxStopRecord[];
+  }
+
+  async searchTransitStops(query: string): Promise<PlaceCandidate[]> {
+    const normalized = query.trim().replaceAll("台", "臺").replace(/\s+/g, " ");
+    const cacheKey = normalized.toLocaleLowerCase("zh-Hant-TW");
+    const cached = this.placeCache.get(cacheKey);
+    if (cached && cached.expiresAt > this.now().getTime()) return cached.value;
+    if (cached) this.placeCache.delete(cacheKey);
+
+    const fetchBothCities = (token: string) =>
+      Promise.all(
+        (["Taipei", "NewTaipei"] as const).map(async (city) => ({
+          city,
+          records: await this.stopRecords(city, normalized, token),
+        })),
+      );
+
+    let token = await this.accessToken();
+    let cityResults: Awaited<ReturnType<typeof fetchBothCities>>;
+    try {
+      cityResults = await fetchBothCities(token);
+    } catch (error) {
+      const shouldRefreshToken =
+        error instanceof ExternalServiceError &&
+        error.kind === "http" &&
+        (error.status === 401 || error.status === 403);
+      if (!shouldRefreshToken) throw error;
+      this.token = null;
+      token = await this.accessToken();
+      cityResults = await fetchBothCities(token);
+    }
+
+    const candidates = cityResults
+      .flatMap(({ city, records }) =>
+        records.map((record): PlaceCandidate | null => {
+          const stopUid = readText(record.StopUID);
+          const name = readText(record.StopName?.Zh_tw);
+          const latitude = Number(record.StopPosition?.PositionLat);
+          const longitude = Number(record.StopPosition?.PositionLon);
+          if (
+            !stopUid ||
+            !name ||
+            !Number.isFinite(latitude) ||
+            !Number.isFinite(longitude)
+          ) {
+            return null;
+          }
+          const countyName = city === "Taipei" ? "臺北市" : "新北市";
+          const address = readText(record.StopAddress);
+          return {
+            id: `tdx:${stopUid}`,
+            name,
+            description: address ? `${countyName}・${address}` : `${countyName}公車站`,
+            latitude,
+            longitude,
+            kind: "transit-stop",
+            source: "TDX",
+            city,
+            stopUid,
+          };
+        }),
+      )
+      .filter((candidate): candidate is PlaceCandidate => Boolean(candidate))
+      .filter(
+        (candidate, index, all) =>
+          all.findIndex((item) => item.id === candidate.id) === index,
+      )
+      .sort((left, right) => {
+        const leftExact = left.name.replaceAll("台", "臺") === normalized ? 0 : 1;
+        const rightExact = right.name.replaceAll("台", "臺") === normalized ? 0 : 1;
+        return leftExact - rightExact || left.name.localeCompare(right.name, "zh-Hant-TW");
+      })
+      .slice(0, 5);
+
+    this.placeCache.set(cacheKey, {
+      value: candidates,
+      expiresAt: this.now().getTime() + 60 * 60 * 1_000,
+    });
+    return candidates;
   }
 
   async getVehicleArrivals(

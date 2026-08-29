@@ -1,3 +1,5 @@
+import type { PlaceCandidate } from "@/lib/domain/journey";
+
 export type ResolvedTransitPlace = {
   canonicalName: string;
   city: "Taipei" | "NewTaipei";
@@ -9,7 +11,7 @@ export type ResolvedOtpPlace = {
   canonicalName: string;
   latitude: number;
   longitude: number;
-  coordinateSource: "tdx-gtfs-station" | "user-coordinate";
+  coordinateSource: "tdx-gtfs-station" | "user-coordinate" | "place-search";
 };
 
 export type ResolvedWeatherPlace = {
@@ -71,6 +73,25 @@ const knownPlaces: KnownPlace[] = [
     longitude: 121.462964,
   },
 ];
+
+export function searchKnownPlaces(value: string): PlaceCandidate[] {
+  const normalized = stripStopSuffix(normalizeTaiwanPlace(value));
+  const matches = knownPlaces.filter((place) =>
+    place.aliases.some((alias) => alias === normalized),
+  );
+
+  return matches.map((place) => ({
+    id: `known:${place.city}:${place.canonicalName}`,
+    name: place.canonicalName,
+    description: `${place.countyName}${place.districtName}・已確認的常用地點`,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    kind: place.canonicalName.endsWith("車站") ? "station" : "landmark",
+    source: "known",
+    city: place.city,
+    stopUid: null,
+  }));
+}
 
 const counties = [
   "基隆市",

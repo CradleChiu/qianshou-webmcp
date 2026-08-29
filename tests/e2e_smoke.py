@@ -143,10 +143,25 @@ def run_desktop(browser):
         "get_vehicle_arrivals",
         "get_weather_safety_brief",
         "plan_accessible_trip",
+        "search_places",
     ]
     assert page.evaluate(
         "() => Boolean(window.__webmcpTools.get_vehicle_arrivals.inputSchema.properties.tripLeg)"
     )
+    assert page.evaluate(
+        "() => Boolean(window.__webmcpTools.plan_accessible_trip.inputSchema.properties.originLabel)"
+    )
+
+    place_search = page.evaluate(
+        """
+        () => window.__webmcpTools.search_places.execute({
+          query: '台北車站',
+          field: 'origin'
+        })
+        """
+    )
+    assert place_search["data"]["candidates"][0]["name"] == "臺北車站"
+    assert page.get_by_text("已確認：臺北車站", exact=True).is_visible()
 
     page.evaluate(
         """
@@ -223,6 +238,91 @@ def run_desktop(browser):
     page.close()
 
 
+def run_place_disambiguation(browser, viewport, artifact_label):
+    page = browser.new_page(viewport=viewport)
+
+    def route_journey(route):
+        body = route.request.post_data_json or {}
+        if body.get("action") != "places" or body.get("query") != "中正路":
+            route.continue_()
+            return
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            json={
+                "status": "ok",
+                "generatedAt": "2026-08-30T00:00:00.000Z",
+                "source": {
+                    "name": "TDX 站點＋OpenStreetMap Nominatim",
+                    "observedAt": None,
+                    "retrievedAt": "2026-08-30T00:00:00.000Z",
+                    "kind": "integrated",
+                    "freshness": "unknown",
+                },
+                "limitations": ["同名地點可能位於不同地址；規劃前請確認候選地點。"],
+                "data": {
+                    "query": "中正路",
+                    "candidates": [
+                        {
+                            "id": "osm:test-1",
+                            "name": "中正路",
+                            "description": "臺北市中正區中正路一段 100 號",
+                            "latitude": 25.043,
+                            "longitude": 121.516,
+                            "kind": "address",
+                            "source": "OpenStreetMap",
+                            "city": "Taipei",
+                            "stopUid": None,
+                        },
+                        {
+                            "id": "osm:test-2",
+                            "name": "中正路",
+                            "description": "新北市板橋區中正路 200 號",
+                            "latitude": 25.018,
+                            "longitude": 121.456,
+                            "kind": "address",
+                            "source": "OpenStreetMap",
+                            "city": "NewTaipei",
+                            "stopUid": None,
+                        },
+                    ],
+                },
+            },
+        )
+
+    page.route("**/api/journey", route_journey)
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+    page.get_by_label("從哪裡出發？").fill("中正路")
+    page.get_by_role("button", name="整理這趟行程").click()
+
+    page.get_by_text("有 2 個候選", exact=False).wait_for()
+    assert page.get_by_role("heading", name="這趟路的重點").count() == 0
+    page.screenshot(
+        path=str(ARTIFACTS / f"{artifact_label}-place-candidates.png"),
+        full_page=True,
+    )
+    taipei_candidate = page.locator(".place-choice").filter(
+        has_text="臺北市中正區中正路一段 100 號"
+    )
+    assert taipei_candidate.evaluate("element => element === document.activeElement")
+    page.keyboard.press("Enter")
+    assert page.get_by_text("已確認：中正路", exact=True).is_visible()
+    assert page.get_by_text("臺北市中正區中正路一段 100 號", exact=True).is_visible()
+
+    page.get_by_role("button", name="整理這趟行程").click()
+    page.get_by_role("heading", name="這趟路的重點").wait_for()
+    summary = page.locator(".summary-title").inner_text()
+    assert "從中正路到臺大醫院" in summary
+    assert "25.043" not in page.locator(".result-panel").inner_text()
+    assert_no_duplicate_ids(page)
+    page.screenshot(
+        path=str(ARTIFACTS / f"{artifact_label}-place-selected.png"),
+        full_page=True,
+    )
+    page.close()
+
+
 def run_mobile(browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     page.goto(BASE_URL)
@@ -236,7 +336,7 @@ def run_mobile(browser):
 
     page.get_by_label("要去哪裡？").fill("台北車站")
     page.get_by_role("button", name="整理這趟行程").click()
-    assert page.get_by_role("alert").get_by_text("起點和目的地相同").is_visible()
+    page.get_by_role("alert").get_by_text("起點和目的地是同一個地點").wait_for()
     page.wait_for_function("document.activeElement?.id === 'destination'")
 
     page.get_by_label("要去哪裡？").fill("台大醫院")
@@ -298,10 +398,16 @@ def main():
         browser = playwright.chromium.launch(**launch_options)
         run_desktop(browser)
         run_mobile(browser)
+        run_place_disambiguation(
+            browser, {"width": 1180, "height": 900}, "desktop"
+        )
+        run_place_disambiguation(
+            browser, {"width": 390, "height": 844}, "mobile"
+        )
         run_speech_regression(browser)
         browser.close()
     print(
-        "desktop, mobile, manual fallback, speech regression, and WebMCP smoke checks passed"
+        "desktop, mobile, keyboard place disambiguation, manual fallback, speech regression, and WebMCP smoke checks passed"
     )
 
 
