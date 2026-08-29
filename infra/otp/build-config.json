@@ -1,0 +1,18 @@
+{
+  "configVersion": "2.9",
+  "osmDefaults": {
+    "timeZone": "Asia/Taipei",
+    "osmTagMapping": "default"
+  },
+  "transferRequests": [
+    {
+      "modes": "WALK"
+    },
+    {
+      "modes": "WALK",
+      "wheelchairAccessibility": {
+        "enabled": true
+      }
+    }
+  ]
+}

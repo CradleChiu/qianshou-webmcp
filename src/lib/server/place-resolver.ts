@@ -5,11 +5,20 @@ export type ResolvedTransitPlace = {
   stopKeyword: string;
 };
 
+export type ResolvedOtpPlace = {
+  canonicalName: string;
+  latitude: number;
+  longitude: number;
+  coordinateSource: "tdx-gtfs-station" | "user-coordinate";
+};
+
 type KnownPlace = {
   canonicalName: string;
   aliases: string[];
   stopKeyword: string;
   countyName: "臺北市";
+  latitude: number;
+  longitude: number;
 };
 
 const knownTaipeiPlaces: KnownPlace[] = [
@@ -18,18 +27,24 @@ const knownTaipeiPlaces: KnownPlace[] = [
     aliases: ["臺北車站", "臺北火車站", "北車"],
     stopKeyword: "臺北車站",
     countyName: "臺北市",
+    latitude: 25.04631,
+    longitude: 121.517415,
   },
   {
     canonicalName: "臺大醫院",
     aliases: ["臺大醫院", "臺灣大學醫學院附設醫院"],
     stopKeyword: "臺大醫院",
     countyName: "臺北市",
+    latitude: 25.041399,
+    longitude: 121.51602,
   },
   {
     canonicalName: "臺北市政府",
     aliases: ["臺北市政府", "市政府"],
     stopKeyword: "市政府",
     countyName: "臺北市",
+    latitude: 25.041135,
+    longitude: 121.565685,
   },
 ];
 
@@ -106,4 +121,42 @@ export function resolveWeatherCounty(value: string): TaiwanCounty | null {
     place.aliases.some((alias) => normalized.includes(alias)),
   );
   return knownPlace?.countyName ?? null;
+}
+
+export function resolveOtpPlace(value: string): ResolvedOtpPlace | null {
+  const normalized = stripStopSuffix(normalizeTaiwanPlace(value));
+  const coordinateMatch = normalized.match(
+    /^(-?\d{1,2}(?:\.\d+)?)\s*[,，]\s*(-?\d{1,3}(?:\.\d+)?)$/,
+  );
+
+  if (coordinateMatch) {
+    const latitude = Number(coordinateMatch[1]);
+    const longitude = Number(coordinateMatch[2]);
+    if (
+      latitude >= 21.5 &&
+      latitude <= 26.5 &&
+      longitude >= 119 &&
+      longitude <= 123
+    ) {
+      return {
+        canonicalName: normalized,
+        latitude,
+        longitude,
+        coordinateSource: "user-coordinate",
+      };
+    }
+    return null;
+  }
+
+  const knownPlace = knownTaipeiPlaces.find((place) =>
+    place.aliases.some((alias) => normalized === alias),
+  );
+  if (!knownPlace) return null;
+
+  return {
+    canonicalName: knownPlace.canonicalName,
+    latitude: knownPlace.latitude,
+    longitude: knownPlace.longitude,
+    coordinateSource: "tdx-gtfs-station",
+  };
 }

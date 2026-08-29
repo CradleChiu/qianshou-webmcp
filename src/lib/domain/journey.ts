@@ -14,7 +14,7 @@ export type InformationSource = {
   name: string;
   observedAt: string | null;
   retrievedAt: string;
-  kind: "official" | "development-fixture";
+  kind: "official" | "integrated" | "development-fixture";
   url?: string;
   freshness: "fresh" | "stale" | "unknown";
 };
@@ -80,15 +80,25 @@ function requirePlace(value: string, fieldName: string): string {
   return normalized;
 }
 
-export async function planAccessibleTrip(
-  request: JourneyRequest,
-): Promise<ServiceEnvelope<JourneyPlan>> {
+export function normalizeJourneyRequest(request: JourneyRequest): JourneyRequest {
   const origin = requirePlace(request.origin, "起點");
   const destination = requirePlace(request.destination, "目的地");
 
-  if (origin.localeCompare(destination, "zh-Hant-TW", { sensitivity: "base" }) === 0) {
+  if (
+    origin.localeCompare(destination, "zh-Hant-TW", {
+      sensitivity: "base",
+    }) === 0
+  ) {
     throw new Error("起點和目的地相同，請確認後再試一次。");
   }
+
+  return { ...request, origin, destination };
+}
+
+export async function planAccessibleTrip(
+  request: JourneyRequest,
+): Promise<ServiceEnvelope<JourneyPlan>> {
+  const { origin, destination } = normalizeJourneyRequest(request);
 
   const walkingMinutes = request.preferences.minimizeWalking ? 7 : 12;
   const transfers = request.preferences.minimizeTransfers ? 0 : 1;

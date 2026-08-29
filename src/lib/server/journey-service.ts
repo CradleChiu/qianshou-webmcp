@@ -1,7 +1,7 @@
 import {
   getVehicleArrivals as getFixtureVehicleArrivals,
   getWeatherSafetyBrief as getFixtureWeatherSafetyBrief,
-  planAccessibleTrip as getFixtureJourneyPlan,
+  normalizeJourneyRequest,
   type JourneyPlan,
   type JourneyRequest,
   type ServiceEnvelope,
@@ -11,10 +11,12 @@ import {
 import { CwaClient, type CwaConfig } from "@/lib/server/cwa";
 import { ExternalServiceError, type ServerFetch } from "@/lib/server/http";
 import {
+  resolveOtpPlace,
   resolveTaipeiTransitPlace,
   resolveWeatherCounty,
 } from "@/lib/server/place-resolver";
 import { TdxClient, type TdxConfig } from "@/lib/server/tdx";
+import { OtpClient, type OtpConfig } from "@/lib/server/otp";
 
 type Environment = Record<string, string | undefined>;
 
@@ -32,7 +34,20 @@ function runtimeEnvironment(): Environment {
     TDX_API_BASE_URL: process.env.TDX_API_BASE_URL,
     CWA_API_KEY: process.env.CWA_API_KEY,
     CWA_API_BASE_URL: process.env.CWA_API_BASE_URL,
+    OTP_GRAPHQL_URL: process.env.OTP_GRAPHQL_URL,
+    OTP_TIMEOUT_MS: process.env.OTP_TIMEOUT_MS,
     UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
+  };
+}
+
+function otpConfig(env: Environment): OtpConfig {
+  const parsed = Number.parseInt(env.OTP_TIMEOUT_MS ?? "20000", 10);
+  return {
+    graphqlUrl:
+      env.OTP_GRAPHQL_URL?.trim() || "http://127.0.0.1:8080/otp/gtfs/v1",
+    timeoutMs: Number.isFinite(parsed)
+      ? Math.min(30_000, Math.max(5_000, parsed))
+      : 20_000,
   };
 }
 
@@ -72,6 +87,7 @@ function unavailableEnvelope<T>(
   url: string,
   limitation: string,
   now: Date,
+  kind: "official" | "integrated" = "official",
 ): ServiceEnvelope<T> {
   const retrievedAt = now.toISOString();
   return {
@@ -81,7 +97,7 @@ function unavailableEnvelope<T>(
       name,
       observedAt: null,
       retrievedAt,
-      kind: "official",
+      kind,
       url,
       freshness: "unknown",
     },
@@ -107,6 +123,7 @@ export function createJourneyServices(
   const now = dependencies.now ?? (() => new Date());
   const tdxSettings = tdxConfig(env);
   const cwaSettings = cwaConfig(env);
+  const otpSettings = otpConfig(env);
   const tdx = tdxSettings
     ? new TdxClient(tdxSettings, {
         fetcher: dependencies.fetcher,
@@ -119,12 +136,53 @@ export function createJourneyServices(
         now,
       })
     : null;
+  const otp = new OtpClient(otpSettings, {
+    fetcher: dependencies.fetcher,
+    now,
+  });
 
   return {
-    planAccessibleTrip(
+    async planAccessibleTrip(
       request: JourneyRequest,
     ): Promise<ServiceEnvelope<JourneyPlan>> {
-      return getFixtureJourneyPlan(request);
+      const normalizedRequest = normalizeJourneyRequest(request);
+      const origin = resolveOtpPlace(normalizedRequest.origin);
+      const destination = resolveOtpPlace(normalizedRequest.destination);
+      const emptyPlan: JourneyPlan = {
+        summary: `${normalizedRequest.origin}到${normalizedRequest.destination}目前無法規劃`,
+        estimatedMinutes: 0,
+        walkingMinutes: 0,
+        transfers: 0,
+        steps: [],
+      };
+
+      if (!origin || !destination) {
+        return unavailableEnvelope(
+          emptyPlan,
+          "OpenTripPlanner（TDX GTFS＋© OpenStreetMap contributors）",
+          "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/",
+          "第一階段路線只支援臺北車站、臺大醫院、市政府，或臺灣範圍內的「緯度,經度」。",
+          now(),
+          "integrated",
+        );
+      }
+
+      try {
+        return await otp.planAccessibleTrip(
+          normalizedRequest,
+          origin,
+          destination,
+        );
+      } catch (error) {
+        return unavailableEnvelope(
+          emptyPlan,
+          "OpenTripPlanner（TDX GTFS＋© OpenStreetMap contributors）",
+          "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/",
+          failureMessage("OpenTripPlanner", error),
+          now(),
+          "integrated",
+        );
+      }
     },
 
     async getVehicleArrivals(

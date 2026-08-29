@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeTaiwanPlace,
+  resolveOtpPlace,
   resolveTaipeiTransitPlace,
   resolveWeatherCounty,
 } from "./place-resolver";
@@ -27,5 +28,25 @@ describe("place resolver", () => {
     expect(resolveWeatherCounty("高雄市美麗島站")).toBe("高雄市");
     expect(resolveWeatherCounty("台大醫院")).toBe("臺北市");
     expect(resolveWeatherCounty("不知道在哪裡")).toBeNull();
+  });
+
+  it("以 TDX GTFS 站點座標解析 OTP 試行地點", () => {
+    expect(resolveOtpPlace("台北車站")).toEqual({
+      canonicalName: "臺北車站",
+      latitude: 25.04631,
+      longitude: 121.517415,
+      coordinateSource: "tdx-gtfs-station",
+    });
+    expect(resolveOtpPlace("臺北市政府")?.longitude).toBe(121.565685);
+    expect(resolveOtpPlace("松山機場")).toBeNull();
+  });
+
+  it("接受臺灣範圍內的明確座標並拒絕範圍外座標", () => {
+    expect(resolveOtpPlace("25.047, 121.517")).toMatchObject({
+      latitude: 25.047,
+      longitude: 121.517,
+      coordinateSource: "user-coordinate",
+    });
+    expect(resolveOtpPlace("40.7,-74.0")).toBeNull();
   });
 });

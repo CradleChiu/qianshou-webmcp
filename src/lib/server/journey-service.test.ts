@@ -51,4 +51,51 @@ describe("journey service orchestration", () => {
     expect(result.limitations[0]).toContain("只支援臺北市");
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it("OTP 不可用時回傳 unavailable，且不退回固定行程", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      new Response("OTP unavailable", { status: 503 }),
+    );
+    const services = createJourneyServices({
+      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      fetcher,
+      now: () => new Date("2026-08-29T02:00:00.000Z"),
+    });
+
+    const result = await services.planAccessibleTrip({
+      origin: "臺北車站",
+      destination: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.status).toBe("unavailable");
+    expect(result.source.kind).toBe("integrated");
+    expect(result.data.steps).toEqual([]);
+    expect(result.limitations).toContain(
+      "系統沒有用示範資料取代失敗的官方資料。",
+    );
+  });
+
+  it("未知路線地點不呼叫 OTP", async () => {
+    const fetcher: ServerFetch = vi.fn();
+    const services = createJourneyServices({ env: {}, fetcher });
+
+    const result = await services.planAccessibleTrip({
+      origin: "松山機場",
+      destination: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.status).toBe("unavailable");
+    expect(result.limitations[0]).toContain("第一階段路線只支援");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });

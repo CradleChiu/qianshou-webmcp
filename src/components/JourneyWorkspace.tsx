@@ -53,12 +53,21 @@ const freshnessText: Record<InformationSource["freshness"], string> = {
   unknown: "無法確認資料新鮮度",
 };
 
+function sourceKindText(
+  kind: InformationSource["kind"],
+  compact = false,
+): string {
+  if (kind === "official") return compact ? "官方" : "官方資料";
+  if (kind === "integrated") return compact ? "整合" : "整合資料";
+  return compact ? "示範" : "示範資料";
+}
+
 function SourceMetadata({ source }: { source: InformationSource }) {
   return (
     <div className="source-metadata">
       <p>
         <span className={`source-kind source-kind--${source.kind}`}>
-          {source.kind === "official" ? "官方資料" : "示範資料"}
+          {sourceKindText(source.kind)}
         </span>
         {source.name}
       </p>
@@ -77,7 +86,7 @@ function SourceMetadata({ source }: { source: InformationSource }) {
         </time>
       </p>
       <p>新鮮度：{freshnessText[source.freshness]}</p>
-      {source.url ? <a href={source.url}>查看官方 API 說明</a> : null}
+      {source.url ? <a href={source.url}>查看資料來源說明</a> : null}
     </div>
   );
 }
@@ -218,7 +227,7 @@ export function JourneyWorkspace() {
   }
 
   function readCurrentPlan() {
-    if (!results.plan) return;
+    if (!results.plan || results.plan.status === "unavailable") return;
 
     if (!("speechSynthesis" in window)) {
       setError("這個瀏覽器沒有提供朗讀功能，請使用螢幕閱讀器閱讀行程。");
@@ -292,8 +301,8 @@ export function JourneyWorkspace() {
       </header>
 
       <div className="demo-banner" aria-label="目前資料狀態">
-        <strong>部分功能仍在示範階段</strong>
-        <span>每項結果會標示資料來源與限制；請勿直接據此出行。</span>
+        <strong>整合路線仍在試行階段</strong>
+        <span>OTP 路線會標示 GTFS／OSM 的資料缺口；請勿把未知狀態當成可安全通行。</span>
       </div>
 
       <main id="main-content" className="workspace">
@@ -430,8 +439,20 @@ export function JourneyWorkspace() {
                   </p>
                 ) : null}
                 {results.plan ? (
+                  results.plan.status === "unavailable" ? (
+                    <div className="journey-unavailable" role="status">
+                      <h3>暫時無法規劃真實路線</h3>
+                      <p>{results.plan.limitations[0]}</p>
+                    </div>
+                  ) : (
                   <>
                     <div className="journey-summary">
+                  <p className="summary-source">
+                    <span className={`source-kind source-kind--${results.plan.source.kind}`}>
+                      {sourceKindText(results.plan.source.kind)}
+                    </span>
+                    {results.plan.source.name}
+                  </p>
                   <p className="summary-title">{results.plan.data.summary}</p>
                   <dl>
                     <div>
@@ -451,7 +472,7 @@ export function JourneyWorkspace() {
 
                     <ol className="journey-steps" aria-label="行程步驟">
                   {results.plan.data.steps.map((step, index) => (
-                    <li key={step.label}>
+                    <li key={`${index}-${step.label}`}>
                       <span className="step-marker" aria-hidden="true">
                         {index + 1}
                       </span>
@@ -489,6 +510,7 @@ export function JourneyWorkspace() {
                       </button>
                     </div>
                   </>
+                  )
                 ) : null}
 
                 <div className="brief-grid">
@@ -497,7 +519,7 @@ export function JourneyWorkspace() {
                       <p className="card-label">
                         下一班車
                         <span className={`source-kind source-kind--${results.arrivals.source.kind}`}>
-                          {results.arrivals.source.kind === "official" ? "官方" : "示範"}
+                          {sourceKindText(results.arrivals.source.kind, true)}
                         </span>
                       </p>
                       {results.arrivals.status === "unavailable" || !nextArrival ? (
@@ -525,7 +547,7 @@ export function JourneyWorkspace() {
                       <p className="card-label">
                         目的地天氣
                         <span className={`source-kind source-kind--${results.weather.source.kind}`}>
-                          {results.weather.source.kind === "official" ? "官方" : "示範"}
+                          {sourceKindText(results.weather.source.kind, true)}
                         </span>
                       </p>
                       <h3 id="weather-title">{results.weather.data.headline}</h3>

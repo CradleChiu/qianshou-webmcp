@@ -1,0 +1,19 @@
+services:
+  otp:
+    image: opentripplanner/opentripplanner:2.9.0
+    command: ["--load", "--serve"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /var/opentripplanner
+      - type: bind
+        source: ./build-config.json
+        target: /var/opentripplanner/build-config.json
+        read_only: true
+      - type: bind
+        source: ./router-config.json
+        target: /var/opentripplanner/router-config.json
+        read_only: true
+    restart: unless-stopped

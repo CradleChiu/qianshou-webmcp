@@ -1,0 +1,25 @@
+{
+  "configVersion": "2.9",
+  "routingDefaults": {
+    "wheelchairAccessibility": {
+      "trip": {
+        "onlyConsiderAccessible": false,
+        "unknownCost": 600,
+        "inaccessibleCost": 3600
+      },
+      "stop": {
+        "onlyConsiderAccessible": false,
+        "unknownCost": 600,
+        "inaccessibleCost": 3600
+      },
+      "elevator": {
+        "onlyConsiderAccessible": false
+      },
+      "inaccessibleStreetReluctance": 25,
+      "maxSlope": 0.08333,
+      "slopeExceededReluctance": 1,
+      "stairsReluctance": 25
+    }
+  },
+  "updaters": []
+}

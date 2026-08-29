@@ -66,7 +66,7 @@ def run_desktop(browser):
 
     assert page.get_by_role("heading", name="你想從哪裡，到哪裡？").count() == 1
     assert page.get_by_text("可直接使用，也支援智慧助理", exact=True).count() == 1
-    assert page.get_by_text("部分功能仍在示範階段", exact=True).is_visible()
+    assert page.get_by_text("整合路線仍在試行階段", exact=True).is_visible()
     assert page.locator("h1").count() == 1
     assert_no_duplicate_ids(page)
 
@@ -104,9 +104,13 @@ def run_desktop(browser):
         """
     )
     page.get_by_role("heading", name="這趟路的重點").wait_for()
-    assert page.get_by_text("台北車站到台大醫院的少步行方案").count() == 1
+    assert page.get_by_text("臺北車站到臺大醫院的 OTP 大眾運輸方案").count() == 1
     assert page.get_by_text("下一班車").is_visible()
-    assert page.get_by_text("目前是開發階段情境資料，不能用於實際出行。").count() == 1
+    assert page.locator(".journey-summary .source-kind").inner_text() == "整合資料"
+    assert page.get_by_text(
+        "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
+        exact=True,
+    ).count() == 1
 
     page.screenshot(path=str(ARTIFACTS / "desktop-after-agent.png"), full_page=True)
     assert bad_responses == [], f"bad responses: {bad_responses}"
@@ -120,7 +124,7 @@ def run_mobile(browser):
     page.wait_for_load_state("networkidle")
 
     assert page.get_by_text("可直接使用", exact=True).count() == 1
-    assert page.get_by_text("部分功能仍在示範階段", exact=True).is_visible()
+    assert page.get_by_text("整合路線仍在試行階段", exact=True).is_visible()
 
     page.keyboard.press("Tab")
     assert page.locator(":focus").inner_text() == "跳到主要內容"

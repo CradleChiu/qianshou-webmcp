@@ -45,7 +45,7 @@ def contrast_results(page):
             '.field-hint',
             '.primary-action',
             '.demo-banner',
-            '.result-demo-label',
+            '.journey-summary',
             '.safety-boundary div > p'
           ];
 
@@ -277,13 +277,15 @@ def run_desktop(browser, results):
     result_state = {
         "focus": focus_after_success,
         "announcement": page.locator(".sr-only").text_content().strip(),
-        "demoWarning": page.get_by_text("結果包含示範資料", exact=True).is_visible(),
+        "integratedSource": page.locator(
+            ".journey-summary .source-kind--integrated"
+        ).is_visible(),
         "pauseDisabled": page.get_by_role("button", name="暫停朗讀").is_disabled(),
         "stopDisabled": page.get_by_role("button", name="停止朗讀").is_disabled(),
     }
     result_ok = (
         focus_after_success["id"] == "result-title"
-        and result_state["demoWarning"]
+        and result_state["integratedSource"]
         and result_state["pauseDisabled"]
         and result_state["stopDisabled"]
     )
@@ -362,7 +364,8 @@ def run_desktop(browser, results):
     source_state = {
         "timeCount": page.locator(".source-details time").count(),
         "limitationsVisible": page.get_by_text(
-            "目前是開發階段情境資料，不能用於實際出行。", exact=True
+            "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
+            exact=True,
         ).is_visible(),
     }
     add(
