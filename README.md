@@ -26,7 +26,7 @@
 - TDX OAuth token 快取、臺北市公車到站 adapter（資料快取 30 秒）。
 - 中央氣象署今明 36 小時縣市預報 adapter（資料快取 10 分鐘）。
 - OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference。
-- TDX 臺北捷運 GTFS／Geofabrik OpenStreetMap 的下載、建圖與 Docker Compose 設定。
+- TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。
 - 上游 timeout、錯誤與 unavailable 狀態；官方模式失敗時不以示範資料冒充。
 - Domain／adapter unit tests 與桌面／手機 Playwright smoke tests。
 
@@ -56,7 +56,9 @@ docker compose -f .\infra\otp\docker-compose.yml up -d
 
 - 到站：以站名關鍵字查詢臺北市公車，仍須由使用者確認站牌方向。
 - 天氣：中央氣象署 `F-C0032-001` 縣市層級今明 36 小時預報，不代表街道現場狀況。
-- 行程：OTP 試行範圍為臺北車站、臺大醫院、市政府或明確座標；預設 graph 含臺北捷運 GTFS，不含公車 GTFS。
+- 行程：OTP 試行範圍為臺北車站、臺大醫院、市政府或明確座標；預設 graph 含臺北捷運及臺北／新北公車 GTFS。
+- 公車時刻：有完整站序，但部分中間站時間由 OTP 在官方時間點間插值；動態到站尚未回寫行程時間。
+- 公車線形：目前 GTFS 未提供可用的 `shapes.txt`，行程可規劃，但地圖線形仍可能不精確。
 - 路線來源：OTP 計算結果屬於「整合資料」，不是 TDX 或營運單位發布的建議路線；OpenStreetMap attribution 為 `© OpenStreetMap contributors`。
 
 ## 驗證
@@ -65,6 +67,7 @@ docker compose -f .\infra\otp\docker-compose.yml up -d
 corepack pnpm typecheck
 corepack pnpm test
 corepack pnpm build
+python tests/otp_multimodal_smoke.py
 ```
 
 瀏覽器 smoke test 需要 Python Playwright 與本機 Chromium／Chrome。先啟動 production server：
@@ -79,11 +82,12 @@ python tests/acceptance_audit.py
 
 ## 下一步
 
-1. 向 TDX 或雙北主管機關取得含逐站時間的現行雙北公車 GTFS feed，並擴充地點／站牌／方向解析。
-2. 加入 API rate limit、監控與上游異常告警。
-3. 建立 OpenAI Realtime WebRTC 語音外殼，但不讓它阻塞 WebMCP 與手動 UI。
-4. 用支援原生 WebMCP 的瀏覽器 runtime 做真實 smoke test。
-5. 與視障者及無障礙專業者進行實體手機、NVDA／VoiceOver／TalkBack 使用測試。
+1. 以 TDX Bus Shape API 補齊公車線形，並擴充地點／站牌／方向解析。
+2. 將 TDX 動態到站與 OTP 靜態行程做可追溯的即時資訊整合。
+3. 加入 API rate limit、監控與上游異常告警。
+4. 建立 OpenAI Realtime WebRTC 語音外殼，但不讓它阻塞 WebMCP 與手動 UI。
+5. 用支援原生 WebMCP 的瀏覽器 runtime 做真實 smoke test。
+6. 與視障者及無障礙專業者進行實體手機、NVDA／VoiceOver／TalkBack 使用測試。
 
 ## 安全邊界
 
