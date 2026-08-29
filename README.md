@@ -82,12 +82,14 @@ python tests/acceptance_audit.py
 
 ## 下一步
 
-1. 以 TDX Bus Shape API 補齊公車線形，並擴充地點／站牌／方向解析。
-2. 將 TDX 動態到站與 OTP 靜態行程做可追溯的即時資訊整合。
-3. 加入 API rate limit、監控與上游異常告警。
-4. 建立 OpenAI Realtime WebRTC 語音外殼，但不讓它阻塞 WebMCP 與手動 UI。
-5. 用支援原生 WebMCP 的瀏覽器 runtime 做真實 smoke test。
-6. 與視障者及無障礙專業者進行實體手機、NVDA／VoiceOver／TalkBack 使用測試。
+1. 依 [`docs/usability-test-plan.md`](docs/usability-test-plan.md) 與 3–5 位視障者進行實體手機、NVDA／VoiceOver／TalkBack 使用測試。
+2. 先修正測試發現的 P0／P1 問題，並用支援原生 WebMCP 的瀏覽器 runtime 做真實 smoke test。
+3. 根據參與者實際用詞與操作策略，擴充地點別稱、站牌與方向解析。
+4. 加入 OTP 健康檢查、API rate limit、監控與上游異常告警。
+5. 通過第一輪使用者驗證後，再評估 TDX Bus Shape、動態到站與 OTP 靜態行程整合。
+6. 最後建立 OpenAI Realtime WebRTC 語音外殼，不讓它阻塞 WebMCP 與手動 UI。
+
+在第一輪目標使用者驗證與 P0 修正完成前，暫不擴張更多縣市、運具或獨立資料庫。
 
 ## 安全邊界
 
