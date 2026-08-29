@@ -161,8 +161,16 @@ export function createJourneyServices(
       const normalizedRequest = normalizeJourneyRequest(request);
       const origin = resolveOtpPlace(normalizedRequest.origin);
       const destination = resolveOtpPlace(normalizedRequest.destination);
+      const originName =
+        origin?.coordinateSource === "user-coordinate"
+          ? "你指定的起點"
+          : normalizedRequest.origin;
+      const destinationName =
+        destination?.coordinateSource === "user-coordinate"
+          ? "你指定的目的地"
+          : normalizedRequest.destination;
       const emptyPlan: JourneyPlan = {
-        summary: `${normalizedRequest.origin}到${normalizedRequest.destination}目前無法規劃`,
+        summary: `從${originName}到${destinationName}：目前無法規劃`,
         estimatedMinutes: 0,
         walkingMinutes: 0,
         transfers: 0,

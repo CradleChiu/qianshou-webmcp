@@ -114,8 +114,18 @@ describe("OTP adapter", () => {
     expect(result.data.estimatedMinutes).toBe(12);
     expect(result.data.walkingMinutes).toBe(4);
     expect(result.data.transfers).toBe(0);
+    expect(result.data.summary).toBe(
+      "從臺北車站到臺大醫院：OTP 大眾運輸方案",
+    );
+    expect(result.data.steps[0]).toMatchObject({
+      label: "先走到捷運站「捷運入口」",
+      detail: expect.stringContaining("到站後，下一步搭乘R"),
+    });
     expect(result.data.steps[1].label).toBe("搭乘R");
-    expect(result.data.steps[2].label).toBe("步行至臺大醫院");
+    expect(result.data.steps[1].detail).toContain(
+      "在捷運「臺北車站」搭乘R（往象山）",
+    );
+    expect(result.data.steps[2].label).toBe("下車後前往目的地");
     expect(result.data.firstTransitLeg).toEqual({
       mode: "SUBWAY",
       stopName: "臺北車站",
@@ -182,6 +192,110 @@ describe("OTP adapter", () => {
       direction: 0,
       city: "Taipei",
     });
+  });
+
+  it("座標行程使用可朗讀的起終點與公車站指示", async () => {
+    const body = responseBody();
+    const itinerary = body.data.planConnection.edges[0].node as unknown as {
+      duration: number;
+      walkTime: number;
+      legs: unknown[];
+    };
+    itinerary.duration = 1500;
+    itinerary.walkTime = 1080;
+    itinerary.legs = [
+      {
+        mode: "WALK",
+        transitLeg: false,
+        duration: 720,
+        distance: 903,
+        from: { name: "Origin" },
+        to: {
+          name: "馬明潭(再興中學)",
+          stop: { gtfsId: "1:TPE16453", name: "馬明潭(再興中學)" },
+        },
+      },
+      {
+        mode: "BUS",
+        transitLeg: true,
+        duration: 480,
+        distance: 3000,
+        headsign: null,
+        from: {
+          name: "馬明潭(再興中學)",
+          stop: { gtfsId: "1:TPE16453", name: "馬明潭(再興中學)" },
+        },
+        to: {
+          name: "臺大癌醫(基隆路)",
+          stop: { gtfsId: "1:TPE16666", name: "臺大癌醫(基隆路)" },
+        },
+        route: {
+          gtfsId: "1:TPE10751_0",
+          shortName: "棕12",
+          longName: "",
+        },
+        trip: { gtfsId: "1:test-trip", directionId: "0" },
+      },
+      {
+        mode: "WALK",
+        transitLeg: false,
+        duration: 360,
+        distance: 386,
+        from: {
+          name: "臺大癌醫(基隆路)",
+          stop: { gtfsId: "1:TPE16666", name: "臺大癌醫(基隆路)" },
+        },
+        to: { name: "Destination" },
+      },
+    ];
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T15:40:00.000Z") },
+    );
+    const coordinateOrigin: ResolvedOtpPlace = {
+      canonicalName: "24.985000,121.565000",
+      latitude: 24.985,
+      longitude: 121.565,
+      coordinateSource: "user-coordinate",
+    };
+    const coordinateDestination: ResolvedOtpPlace = {
+      canonicalName: "25.015000,121.545000",
+      latitude: 25.015,
+      longitude: 121.545,
+      coordinateSource: "user-coordinate",
+    };
+
+    const result = await client.planAccessibleTrip(
+      {
+        ...request,
+        origin: coordinateOrigin.canonicalName,
+        destination: coordinateDestination.canonicalName,
+      },
+      coordinateOrigin,
+      coordinateDestination,
+    );
+
+    expect(result.data.summary).toBe(
+      "從你指定的起點到你指定的目的地：OTP 大眾運輸方案",
+    );
+    expect(result.data.steps[0]).toEqual({
+      label: "先走到公車站「馬明潭（再興中學）」",
+      detail:
+        "從你指定的起點出發，步行約 12 分鐘（約 900 公尺）。到站後，下一步搭乘棕12。",
+      caution:
+        "這段路的無障礙資訊可能不完整。若遇到樓梯、陡坡或電梯停用，請先停下確認，再改走其他路線或請人協助。",
+    });
+    expect(result.data.steps[1].detail).toBe(
+      "在「馬明潭（再興中學）」站牌搭乘棕12，坐到「臺大癌醫（基隆路）」站牌，車程約 8 分鐘。",
+    );
+    expect(result.data.steps[2]).toMatchObject({
+      label: "下車後前往目的地",
+      detail:
+        "在「臺大癌醫（基隆路）」站牌下車後，再步行約 6 分鐘（約 390 公尺）到你指定的目的地。",
+    });
+    expect(JSON.stringify(result.data.steps)).not.toContain("24.985000");
+    expect(JSON.stringify(result.data.steps)).not.toContain("25.015000");
   });
 
   it("GraphQL 回傳錯誤時不建立看似可用的路線", async () => {

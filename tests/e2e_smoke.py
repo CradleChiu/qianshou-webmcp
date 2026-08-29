@@ -180,7 +180,7 @@ def run_desktop(browser):
         """
     )
     page.get_by_role("heading", name="這趟路的重點").wait_for()
-    assert page.get_by_text("臺北車站到臺大醫院的 OTP 大眾運輸方案").count() == 1
+    assert page.get_by_text("從臺北車站到臺大醫院：OTP 大眾運輸方案").count() == 1
     assert page.locator(".brief-card .card-label").filter(
         has_text="這趟交通"
     ).is_visible()
@@ -194,6 +194,30 @@ def run_desktop(browser):
     ).count() == 1
 
     page.screenshot(path=str(ARTIFACTS / "desktop-after-agent.png"), full_page=True)
+
+    coordinate_plan = page.evaluate(
+        """
+        () => window.__webmcpTools.plan_accessible_trip.execute({
+          origin: '25.045000,121.515000',
+          destination: '25.040000,121.517000',
+          minimizeWalking: true,
+          minimizeTransfers: true,
+          stepFree: true
+        })
+        """
+    )
+    assert coordinate_plan["data"]["summary"] == (
+        "從你指定的起點到你指定的目的地：OTP 大眾運輸方案"
+    )
+    assert "25.045000" not in str(coordinate_plan["data"]["steps"])
+    assert page.get_by_text(
+        "從你指定的起點到你指定的目的地：OTP 大眾運輸方案",
+        exact=True,
+    ).is_visible()
+    coordinate_steps = page.locator(".journey-steps").inner_text()
+    assert "你指定的起點" in coordinate_steps
+    assert "25.045000" not in coordinate_steps
+
     assert bad_responses == [], f"bad responses: {bad_responses}"
     assert console_errors == [], f"console errors: {console_errors}"
     page.close()

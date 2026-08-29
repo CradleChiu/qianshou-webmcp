@@ -149,6 +149,20 @@ describe("journey service orchestration", () => {
 
     expect(result.status).toBe("unavailable");
     expect(result.limitations[0]).toContain("可能已超過末班車");
+
+    const coordinateResult = await services.planAccessibleTrip({
+      origin: "24.985000,121.565000",
+      destination: "25.015000,121.545000",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+    expect(coordinateResult.data.summary).toBe(
+      "從你指定的起點到你指定的目的地：目前無法規劃",
+    );
+    expect(coordinateResult.data.summary).not.toContain("24.985000");
   });
 
   it("未知路線地點不呼叫 OTP", async () => {
