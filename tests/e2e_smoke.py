@@ -27,6 +27,74 @@ def install_webmcp_test_double(page):
     )
 
 
+def install_speech_synthesis_test_double(page):
+    page.add_init_script(
+        """
+        window.__speechTest = {
+          active: null,
+          cancels: 0,
+          failWith: null,
+          speaks: 0,
+        };
+        class FakeSpeechSynthesisUtterance {
+          constructor(text) {
+            this.text = text;
+            this.lang = '';
+            this.rate = 1;
+            this.voice = null;
+            this.onstart = null;
+            this.onend = null;
+            this.onerror = null;
+          }
+        }
+        Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+          configurable: true,
+          value: FakeSpeechSynthesisUtterance,
+        });
+        const synthesis = {
+          speaking: false,
+          pending: false,
+          paused: false,
+          getVoices() {
+            return [{ lang: 'zh-TW', name: 'Test voice' }];
+          },
+          speak(utterance) {
+            window.__speechTest.speaks += 1;
+            if (window.__speechTest.failWith) {
+              const error = window.__speechTest.failWith;
+              queueMicrotask(() => utterance.onerror?.({ error }));
+              return;
+            }
+            window.__speechTest.active = utterance;
+            this.speaking = true;
+            queueMicrotask(() => utterance.onstart?.({}));
+          },
+          cancel() {
+            window.__speechTest.cancels += 1;
+            const active = window.__speechTest.active;
+            window.__speechTest.active = null;
+            this.speaking = false;
+            this.pending = false;
+            this.paused = false;
+            active?.onerror?.({ error: 'canceled' });
+          },
+          pause() {
+            this.paused = true;
+            this.speaking = false;
+          },
+          resume() {
+            this.paused = false;
+            this.speaking = true;
+          },
+        };
+        Object.defineProperty(window, 'speechSynthesis', {
+          configurable: true,
+          value: synthesis,
+        });
+        """
+    )
+
+
 def assert_no_duplicate_ids(page):
     duplicates = page.evaluate(
         """
@@ -86,6 +154,10 @@ def run_desktop(browser):
     )
     page.get_by_role("heading", name="查到的資訊").wait_for()
     assert page.get_by_text("目的地天氣").is_visible()
+    assert page.locator(".brief-card--weather").get_by_text(
+        "3 小時分段", exact=False
+    ).is_visible()
+    assert page.get_by_text("今明 36 小時", exact=False).count() == 0
 
     page.evaluate(
         """
@@ -143,9 +215,41 @@ def run_mobile(browser):
     assert page.get_by_role("button", name="停止朗讀").is_disabled()
     assert page.get_by_text("下一班車").is_visible()
     assert page.get_by_text("目的地天氣").is_visible()
+    assert page.locator(".brief-card--weather").get_by_text(
+        "3 小時分段", exact=False
+    ).is_visible()
     assert_no_duplicate_ids(page)
 
     page.screenshot(path=str(ARTIFACTS / "mobile-after-manual.png"), full_page=True)
+    page.close()
+
+
+def run_speech_regression(browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    install_speech_synthesis_test_double(page)
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+
+    page.get_by_role("button", name="整理這趟行程").click()
+    page.get_by_role("heading", name="這趟路的重點").wait_for()
+    page.get_by_role("button", name="朗讀目前行程").click()
+    page.wait_for_function("window.__speechTest.speaks === 1")
+    assert page.evaluate("window.__speechTest.cancels") == 0
+    assert page.get_by_role("button", name="暫停朗讀").is_enabled()
+    assert page.get_by_role("button", name="停止朗讀").is_enabled()
+
+    page.get_by_role("button", name="停止朗讀").click()
+    assert page.evaluate("window.__speechTest.cancels") == 1
+    assert page.get_by_text("朗讀沒有完成", exact=False).count() == 0
+    assert page.get_by_role("button", name="暫停朗讀").is_disabled()
+
+    page.evaluate("window.__speechTest.failWith = 'not-allowed'")
+    page.get_by_role("button", name="朗讀目前行程").click()
+    page.get_by_role("alert").get_by_text(
+        "內建瀏覽器未允許語音輸出", exact=False
+    ).wait_for()
+    assert page.get_by_role("button", name="暫停朗讀").is_disabled()
+    assert page.get_by_role("button", name="停止朗讀").is_disabled()
     page.close()
 
 
@@ -158,8 +262,11 @@ def main():
         browser = playwright.chromium.launch(**launch_options)
         run_desktop(browser)
         run_mobile(browser)
+        run_speech_regression(browser)
         browser.close()
-    print("desktop, mobile, manual fallback, and WebMCP smoke checks passed")
+    print(
+        "desktop, mobile, manual fallback, speech regression, and WebMCP smoke checks passed"
+    )
 
 
 if __name__ == "__main__":

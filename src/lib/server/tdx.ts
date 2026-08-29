@@ -2,7 +2,11 @@ import type {
   ServiceEnvelope,
   VehicleArrival,
 } from "@/lib/domain/journey";
-import { fetchJson, type ServerFetch } from "@/lib/server/http";
+import {
+  ExternalServiceError,
+  fetchJson,
+  type ServerFetch,
+} from "@/lib/server/http";
 import type { ResolvedTransitPlace } from "@/lib/server/place-resolver";
 
 export type TdxConfig = {
@@ -64,6 +68,10 @@ export class TdxClient {
   private readonly fetcher: ServerFetch;
   private readonly now: () => Date;
   private token: { value: string; expiresAt: number } | null = null;
+  private readonly arrivalsCache = new Map<
+    string,
+    { value: ServiceEnvelope<VehicleArrival[]>; expiresAt: number }
+  >();
 
   constructor(
     private readonly config: TdxConfig,
@@ -114,10 +122,44 @@ export class TdxClient {
     return accessToken;
   }
 
+  private async arrivalRecords(
+    url: URL,
+    token: string,
+  ): Promise<TdxArrivalRecord[]> {
+    const { data } = await fetchJson<unknown>(
+      "TDX 到站服務",
+      this.fetcher,
+      url,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/json",
+        },
+        cache: "no-store",
+      },
+      this.config.timeoutMs,
+    );
+
+    if (!Array.isArray(data)) {
+      throw new ExternalServiceError(
+        "TDX 到站服務",
+        "invalid-response",
+        "TDX 到站回應不是預期的陣列格式。",
+      );
+    }
+
+    return data as TdxArrivalRecord[];
+  }
+
   async getVehicleArrivals(
     place: ResolvedTransitPlace,
   ): Promise<ServiceEnvelope<VehicleArrival[]>> {
-    const token = await this.accessToken();
+    const cacheKey = `${place.city}:${place.stopKeyword}`;
+    const cached = this.arrivalsCache.get(cacheKey);
+    if (cached && cached.expiresAt > this.now().getTime()) return cached.value;
+    if (cached) this.arrivalsCache.delete(cacheKey);
+
+    let token = await this.accessToken();
     const base = this.config.apiBaseUrl.replace(/\/$/, "");
     const url = new URL(
       `${base}/v2/Bus/EstimatedTimeOfArrival/City/${place.city}`,
@@ -131,26 +173,25 @@ export class TdxClient {
     url.searchParams.set("$top", "5");
     url.searchParams.set("$format", "JSON");
 
-    const retrievedAt = this.now().toISOString();
-    const { data } = await fetchJson<unknown>(
-      "TDX 到站服務",
-      this.fetcher,
-      url,
-      {
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: "application/json",
-        },
-        next: { revalidate: 30 },
-      },
-      this.config.timeoutMs,
-    );
+    let records: TdxArrivalRecord[];
+    try {
+      records = await this.arrivalRecords(url, token);
+    } catch (error) {
+      const shouldRefreshToken =
+        error instanceof ExternalServiceError &&
+        error.kind === "http" &&
+        (error.status === 401 || error.status === 403);
+      if (!shouldRefreshToken) throw error;
 
-    if (!Array.isArray(data)) {
-      throw new Error("TDX 到站回應不是預期的陣列格式。");
+      // TDX may reject a previously issued token after another process obtains
+      // a new one for the same client (for example, the GTFS download job).
+      // Refresh exactly once so an authentication failure cannot loop forever.
+      this.token = null;
+      token = await this.accessToken();
+      records = await this.arrivalRecords(url, token);
     }
 
-    const records = data as TdxArrivalRecord[];
+    const retrievedAt = this.now().toISOString();
     const arrivals = records
       .map((record): VehicleArrival | null => {
         const stopName = readText(record.StopName?.Zh_tw);
@@ -178,7 +219,7 @@ export class TdxClient {
     const observedAt = latestTimestamp(records);
     const freshness = freshnessOf(observedAt, this.now());
 
-    return {
+    const result: ServiceEnvelope<VehicleArrival[]> = {
       status: arrivals.length ? "partial" : "unavailable",
       generatedAt: retrievedAt,
       source: {
@@ -191,12 +232,17 @@ export class TdxClient {
       },
       limitations: arrivals.length
         ? [
-            "目前以站名關鍵字搜尋臺北市站牌，請確認站名與方向。",
+            `目前以站名關鍵字搜尋${place.countyName}站牌，請確認站名與方向。`,
             "TDX 到站資料未提供本班車低地板狀態。",
             ...(freshness === "stale" ? ["這筆到站資料可能已過期。"] : []),
           ]
         : ["TDX 沒有回傳符合此站名的到站資料，請修改站名後再試。"],
       data: arrivals,
     };
+    this.arrivalsCache.set(cacheKey, {
+      value: result,
+      expiresAt: this.now().getTime() + 30_000,
+    });
+    return result;
   }
 }

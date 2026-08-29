@@ -62,6 +62,16 @@ function sourceKindText(
   return compact ? "示範" : "示範資料";
 }
 
+function speechFailureMessage(error: SpeechSynthesisErrorCode): string {
+  if (error === "not-allowed") {
+    return "內建瀏覽器未允許語音輸出，請改用螢幕閱讀器，或在支援系統語音的瀏覽器開啟此頁。";
+  }
+  if (error === "voice-unavailable" || error === "language-unavailable") {
+    return "目前找不到可用的中文系統語音，請使用螢幕閱讀器閱讀行程。";
+  }
+  return "裝置目前無法完成語音朗讀，請使用螢幕閱讀器閱讀行程。";
+}
+
 function SourceMetadata({ source }: { source: InformationSource }) {
   return (
     <div className="source-metadata">
@@ -107,6 +117,7 @@ export function JourneyWorkspace() {
   const originRef = useRef<HTMLInputElement>(null);
   const destinationRef = useRef<HTMLInputElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -131,6 +142,12 @@ export function JourneyWorkspace() {
   useEffect(() => {
     return () => {
       if ("speechSynthesis" in window) {
+        const utterance = activeUtteranceRef.current;
+        if (utterance) {
+          utterance.onend = null;
+          utterance.onerror = null;
+          activeUtteranceRef.current = null;
+        }
         window.speechSynthesis.cancel();
       }
     };
@@ -234,7 +251,16 @@ export function JourneyWorkspace() {
       return;
     }
 
-    window.speechSynthesis.cancel();
+    setError("");
+    const synthesis = window.speechSynthesis;
+    const previousUtterance = activeUtteranceRef.current;
+    if (previousUtterance) {
+      previousUtterance.onend = null;
+      previousUtterance.onerror = null;
+      activeUtteranceRef.current = null;
+      synthesis.cancel();
+    }
+
     const plan = results.plan.data;
     const text = [
       plan.summary,
@@ -245,14 +271,38 @@ export function JourneyWorkspace() {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-TW";
     utterance.rate = 0.92;
-    utterance.onend = () => setSpeechStatus("idle");
-    utterance.onerror = () => {
-      setSpeechStatus("idle");
-      setError("朗讀沒有完成，請使用螢幕閱讀器閱讀行程。");
+    const voices = synthesis.getVoices();
+    utterance.voice =
+      voices.find((voice) => voice.lang.toLowerCase() === "zh-tw") ??
+      voices.find((voice) => voice.lang.toLowerCase().startsWith("zh")) ??
+      null;
+    activeUtteranceRef.current = utterance;
+    utterance.onstart = () => {
+      if (activeUtteranceRef.current !== utterance) return;
+      setSpeechStatus("speaking");
+      setAnnouncement("開始朗讀目前行程。");
     };
-    window.speechSynthesis.speak(utterance);
+    utterance.onend = () => {
+      if (activeUtteranceRef.current !== utterance) return;
+      activeUtteranceRef.current = null;
+      setSpeechStatus("idle");
+      setAnnouncement("目前行程朗讀完成。");
+    };
+    utterance.onerror = (event) => {
+      if (activeUtteranceRef.current !== utterance) return;
+      activeUtteranceRef.current = null;
+      setSpeechStatus("idle");
+      if (event.error === "canceled" || event.error === "interrupted") {
+        setAnnouncement("已停止朗讀。");
+        return;
+      }
+      setError(speechFailureMessage(event.error));
+      setAnnouncement("語音朗讀無法使用，行程文字仍保留在畫面上。");
+    };
+
     setSpeechStatus("speaking");
     setAnnouncement("開始朗讀目前行程。");
+    synthesis.speak(utterance);
   }
 
   function toggleSpeech() {
@@ -272,6 +322,12 @@ export function JourneyWorkspace() {
 
   function stopSpeech() {
     if (!("speechSynthesis" in window)) return;
+    const utterance = activeUtteranceRef.current;
+    if (utterance) {
+      utterance.onend = null;
+      utterance.onerror = null;
+      activeUtteranceRef.current = null;
+    }
     window.speechSynthesis.cancel();
     setSpeechStatus("idle");
     setAnnouncement("已停止朗讀。");
@@ -551,6 +607,7 @@ export function JourneyWorkspace() {
                         </span>
                       </p>
                       <h3 id="weather-title">{results.weather.data.headline}</h3>
+                      <p>{results.weather.data.forecastWindow}</p>
                       <p>{results.weather.data.advice}</p>
                     </article>
                   ) : null}

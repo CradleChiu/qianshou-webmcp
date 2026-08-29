@@ -34,7 +34,7 @@ describe("journey service orchestration", () => {
     );
   });
 
-  it("官方 TDX 模式不把外縣市誤查成臺北市站牌", async () => {
+  it("官方 TDX 模式不把雙北以外縣市誤查成臺北市站牌", async () => {
     const fetcher: ServerFetch = vi.fn();
     const services = createJourneyServices({
       env: {
@@ -44,11 +44,11 @@ describe("journey service orchestration", () => {
       fetcher,
     });
 
-    const result = await services.getVehicleArrivals("新北市板橋車站");
+    const result = await services.getVehicleArrivals("桃園市桃園車站");
 
     expect(result.status).toBe("unavailable");
     expect(result.source.kind).toBe("official");
-    expect(result.limitations[0]).toContain("只支援臺北市");
+    expect(result.limitations[0]).toContain("只支援雙北");
     expect(fetcher).not.toHaveBeenCalled();
   });
 

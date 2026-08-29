@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeTaiwanPlace,
+  resolveDoubleTaipeiTransitPlace,
   resolveOtpPlace,
-  resolveTaipeiTransitPlace,
+  resolveShortTermWeatherPlace,
   resolveWeatherCounty,
 } from "./place-resolver";
 
 describe("place resolver", () => {
   it("正規化台字、空白與站牌後綴", () => {
     expect(normalizeTaiwanPlace("  台北  車站 ")).toBe("臺北 車站");
-    expect(resolveTaipeiTransitPlace("台北車站附近站牌")).toEqual({
+    expect(resolveDoubleTaipeiTransitPlace("台北車站附近站牌")).toEqual({
       canonicalName: "臺北車站",
       city: "Taipei",
       countyName: "臺北市",
@@ -17,17 +18,42 @@ describe("place resolver", () => {
     });
   });
 
-  it("接受臺北市任意站名，但拒絕明確的外縣市", () => {
-    expect(resolveTaipeiTransitPlace("臺北市衡陽路口")?.stopKeyword).toBe(
+  it("接受雙北站名，但拒絕明確的外縣市", () => {
+    expect(resolveDoubleTaipeiTransitPlace("臺北市衡陽路口")?.stopKeyword).toBe(
       "衡陽路口",
     );
-    expect(resolveTaipeiTransitPlace("新北市板橋車站")).toBeNull();
+    expect(resolveDoubleTaipeiTransitPlace("新北市板橋車站")).toEqual({
+      canonicalName: "新北市板橋車站",
+      city: "NewTaipei",
+      countyName: "新北市",
+      stopKeyword: "板橋車站",
+    });
+    expect(resolveDoubleTaipeiTransitPlace("桃園市桃園車站")).toBeNull();
   });
 
   it("從明確縣市或已知地標判斷天氣區域", () => {
     expect(resolveWeatherCounty("高雄市美麗島站")).toBe("高雄市");
     expect(resolveWeatherCounty("台大醫院")).toBe("臺北市");
     expect(resolveWeatherCounty("不知道在哪裡")).toBeNull();
+  });
+
+  it("把雙北地點解析成短時鄉鎮預報行政區", () => {
+    expect(resolveShortTermWeatherPlace("台大醫院")).toEqual({
+      countyName: "臺北市",
+      districtName: "中正區",
+      isRepresentativeDistrict: false,
+    });
+    expect(resolveShortTermWeatherPlace("新北市板橋區")).toEqual({
+      countyName: "新北市",
+      districtName: "板橋區",
+      isRepresentativeDistrict: false,
+    });
+    expect(resolveShortTermWeatherPlace("臺北市")).toEqual({
+      countyName: "臺北市",
+      districtName: "中正區",
+      isRepresentativeDistrict: true,
+    });
+    expect(resolveShortTermWeatherPlace("高雄市")).toBeNull();
   });
 
   it("以 TDX GTFS 站點座標解析 OTP 試行地點", () => {
@@ -38,6 +64,12 @@ describe("place resolver", () => {
       coordinateSource: "tdx-gtfs-station",
     });
     expect(resolveOtpPlace("臺北市政府")?.longitude).toBe(121.565685);
+    expect(resolveOtpPlace("板橋車站")).toMatchObject({
+      canonicalName: "板橋車站",
+      latitude: 25.015838,
+      longitude: 121.462964,
+      coordinateSource: "tdx-gtfs-station",
+    });
     expect(resolveOtpPlace("松山機場")).toBeNull();
   });
 

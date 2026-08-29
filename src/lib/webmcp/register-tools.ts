@@ -147,7 +147,7 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: "get_weather_safety_brief",
       description:
-        "Read a concise weather and outdoor safety brief for a Taiwan location and update the current page. It does not make road-crossing decisions.",
+        "Read a concise official 3-to-6-hour weather and outdoor safety brief for a Taipei or New Taipei location and update the current page. It does not make road-crossing decisions.",
       inputSchema: {
         type: "object",
         properties: {

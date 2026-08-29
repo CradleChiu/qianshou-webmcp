@@ -12,8 +12,8 @@ import { CwaClient, type CwaConfig } from "@/lib/server/cwa";
 import { ExternalServiceError, type ServerFetch } from "@/lib/server/http";
 import {
   resolveOtpPlace,
-  resolveTaipeiTransitPlace,
-  resolveWeatherCounty,
+  resolveDoubleTaipeiTransitPlace,
+  resolveShortTermWeatherPlace,
 } from "@/lib/server/place-resolver";
 import { TdxClient, type TdxConfig } from "@/lib/server/tdx";
 import { OtpClient, type OtpConfig } from "@/lib/server/otp";
@@ -109,9 +109,19 @@ function unavailableEnvelope<T>(
 function failureMessage(service: string, error: unknown): string {
   if (error instanceof ExternalServiceError) {
     if (error.kind === "timeout") return `${service}回應逾時，請稍後再試。`;
-    if (error.kind === "http" && error.status === 429) {
-      return `${service}已達查詢頻率限制，請稍後再試。`;
+    if (error.kind === "http") {
+      if (error.status === 401 || error.status === 403) {
+        return `${service}身分驗證失敗，請檢查伺服器端金鑰。`;
+      }
+      if (error.status === 429) {
+        return `${service}已達查詢頻率限制，請稍後再試。`;
+      }
+      return `${service}回傳 HTTP ${error.status ?? "錯誤"}，請稍後再試。`;
     }
+    if (error.kind === "invalid-response") {
+      return `${service}回傳的資料格式無法處理，請稍後再試。`;
+    }
+    if (error.kind === "network") return `${service}目前無法連線，請稍後再試。`;
   }
   return `${service}目前無法提供資料，請稍後再試。`;
 }
@@ -161,7 +171,7 @@ export function createJourneyServices(
           emptyPlan,
           "OpenTripPlanner（TDX GTFS＋© OpenStreetMap contributors）",
           "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/",
-          "第一階段路線只支援臺北車站、臺大醫院、市政府，或臺灣範圍內的「緯度,經度」。",
+          "第一階段路線只支援臺北車站、臺大醫院、市政府、板橋車站，或臺灣範圍內的「緯度,經度」。",
           now(),
           "integrated",
         );
@@ -189,13 +199,13 @@ export function createJourneyServices(
       stopName: string,
     ): Promise<ServiceEnvelope<VehicleArrival[]>> {
       if (!tdx) return getFixtureVehicleArrivals(stopName);
-      const place = resolveTaipeiTransitPlace(stopName);
+      const place = resolveDoubleTaipeiTransitPlace(stopName);
       if (!place) {
         return unavailableEnvelope(
           [],
           "TDX 運輸資料流通服務",
           "https://tdx.transportdata.tw/api-service/swagger",
-          "第一階段的官方到站查詢只支援臺北市站牌。",
+          "第一階段的官方到站查詢只支援雙北（臺北市與新北市）站牌。",
           now(),
         );
       }
@@ -217,27 +227,29 @@ export function createJourneyServices(
       location: string,
     ): Promise<ServiceEnvelope<WeatherBrief>> {
       if (!cwa) return getFixtureWeatherSafetyBrief(location);
-      const county = resolveWeatherCounty(location);
-      if (!county) {
+      const place = resolveShortTermWeatherPlace(location);
+      if (!place) {
         return unavailableEnvelope(
           {
             location,
+            forecastWindow: "未來 3–6 小時",
             headline: "暫時無法判斷所在地區",
-            advice: "請在地點中加入縣市名稱後再試一次。",
+            advice: "請在地點中加入雙北縣市與行政區後再試一次。",
           },
           "中央氣象署開放資料平臺",
           "https://opendata.cwa.gov.tw/dist/opendata-swagger.html",
-          "目前無法從輸入地點判斷縣市。",
+          "第一階段短時天氣只支援臺北市與新北市，且需要可判斷的地點或行政區。",
           now(),
         );
       }
 
       try {
-        return await cwa.getWeatherSafetyBrief(county);
+        return await cwa.getWeatherSafetyBrief(place);
       } catch (error) {
         return unavailableEnvelope(
           {
-            location: county,
+            location: `${place.countyName}${place.districtName}`,
+            forecastWindow: "未來 3–6 小時",
             headline: "暫時無法取得天氣",
             advice: "請直接查詢中央氣象署，或稍後再試。",
           },

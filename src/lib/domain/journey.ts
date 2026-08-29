@@ -42,6 +42,7 @@ export type VehicleArrival = {
 
 export type WeatherBrief = {
   location: string;
+  forecastWindow: string;
   headline: string;
   advice: string;
 };
@@ -176,6 +177,7 @@ export async function getWeatherSafetyBrief(
     limitations: ["天氣內容是介面測試資料，尚未連接中央氣象署。"],
     data: {
       location: normalizedLocation,
+      forecastWindow: "開發資料：未來 3–6 小時",
       headline: "可能有短暫雨",
       advice: "出門前請重新確認官方預報，並準備不佔手的雨具。",
     },

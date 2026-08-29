@@ -2,7 +2,7 @@
 
 為生活在台灣的視障者與高齡者打造的在地生活資訊助手。產品先從一件事做好：把交通、到站與天氣整理成可讀、可聽、可追溯的行前摘要。
 
-目前是可執行的臺北試行版。設定官方金鑰後，到站資訊可讀取 TDX、天氣可讀取中央氣象署；行程路線改由 OpenTripPlanner 整合 TDX GTFS 與 OpenStreetMap 計算。OTP 未啟動或地點不在試行範圍時會回傳 unavailable，不再以固定示範行程代替。
+目前是可執行的雙北試行版。設定官方金鑰後，到站資訊可讀取 TDX、天氣可讀取中央氣象署；行程路線改由 OpenTripPlanner 整合 TDX GTFS 與 OpenStreetMap 計算。OTP 未啟動或地點不在試行範圍時會回傳 unavailable，不再以固定示範行程代替。
 
 ## 核心原則
 
@@ -23,8 +23,8 @@
 - `plan_accessible_trip`、`get_vehicle_arrivals`、`get_weather_safety_brief` 三個 WebMCP imperative tools。
 - WebMCP 不可用時保留完整手動操作。
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。
-- TDX OAuth token 快取、臺北市公車到站 adapter（資料快取 30 秒）。
-- 中央氣象署今明 36 小時縣市預報 adapter（資料快取 10 分鐘）。
+- TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站 adapter（資料快取 30 秒）。
+- 中央氣象署雙北鄉鎮逐 3 小時預報 adapter，只整理目前與下一時段、涵蓋未來約 3–6 小時（資料快取 10 分鐘）。
 - OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference。
 - TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。
 - 上游 timeout、錯誤與 unavailable 狀態；官方模式失敗時不以示範資料冒充。
@@ -52,11 +52,13 @@ docker compose -f .\infra\otp\docker-compose.yml up -d
 
 `.env.local` 的 `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET` 與 `CWA_API_KEY` 只在伺服器端讀取，不要加上 `NEXT_PUBLIC_`，也不要提交金鑰。兩組金鑰皆未設定時，到站與天氣會清楚顯示示範資料；OTP 或官方服務查詢失敗時，介面會顯示 unavailable，不會悄悄退回固定值。
 
+如果由受限的 Agent 沙箱啟動 Next.js，必須允許該伺服器連線外部網路，否則 TDX 與中央氣象署會明確回傳無法連線；本機 OTP 不受此外部網路限制。
+
 目前官方資料範圍：
 
-- 到站：以站名關鍵字查詢臺北市公車，仍須由使用者確認站牌方向。
-- 天氣：中央氣象署 `F-C0032-001` 縣市層級今明 36 小時預報，不代表街道現場狀況。
-- 行程：OTP 試行範圍為臺北車站、臺大醫院、市政府或明確座標；預設 graph 含臺北捷運及臺北／新北公車 GTFS。
+- 到站：以站名關鍵字查詢臺北市與新北市公車，仍須由使用者確認站牌方向。
+- 天氣：中央氣象署 `F-D0047-061`（臺北市）與 `F-D0047-069`（新北市）鄉鎮逐 3 小時預報；摘要只涵蓋未來約 3–6 小時。只輸入縣市時分別以中正區／板橋區為代表並明確標示，不代表街道現場狀況。
+- 行程：OTP 試行地點包含臺北車站、臺大醫院、市政府、板橋車站，也接受臺灣範圍內的明確座標；預設 graph 含臺北捷運及臺北／新北公車 GTFS。
 - 公車時刻：有完整站序，但部分中間站時間由 OTP 在官方時間點間插值；動態到站尚未回寫行程時間。
 - 公車線形：目前 GTFS 未提供可用的 `shapes.txt`，行程可規劃，但地圖線形仍可能不精確。
 - 路線來源：OTP 計算結果屬於「整合資料」，不是 TDX 或營運單位發布的建議路線；OpenStreetMap attribution 為 `© OpenStreetMap contributors`。
