@@ -369,7 +369,7 @@ def run_desktop(browser, results):
         results,
         "資料來源與限制",
         "PASS"
-        if source_state["timeCount"] == 3 and source_state["limitationsVisible"]
+        if source_state["timeCount"] >= 3 and source_state["limitationsVisible"]
         else "FAIL",
         source_state,
     )

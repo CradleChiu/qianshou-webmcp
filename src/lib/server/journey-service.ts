@@ -24,6 +24,18 @@ type JourneyServiceDependencies = {
   now?: () => Date;
 };
 
+function runtimeEnvironment(): Environment {
+  return {
+    TDX_CLIENT_ID: process.env.TDX_CLIENT_ID,
+    TDX_CLIENT_SECRET: process.env.TDX_CLIENT_SECRET,
+    TDX_TOKEN_URL: process.env.TDX_TOKEN_URL,
+    TDX_API_BASE_URL: process.env.TDX_API_BASE_URL,
+    CWA_API_KEY: process.env.CWA_API_KEY,
+    CWA_API_BASE_URL: process.env.CWA_API_BASE_URL,
+    UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
+  };
+}
+
 function timeoutFrom(env: Environment): number {
   const parsed = Number.parseInt(env.UPSTREAM_TIMEOUT_MS ?? "5000", 10);
   return Number.isFinite(parsed) ? Math.min(10_000, Math.max(1_000, parsed)) : 5_000;
@@ -91,7 +103,7 @@ function failureMessage(service: string, error: unknown): string {
 export function createJourneyServices(
   dependencies: JourneyServiceDependencies = {},
 ) {
-  const env = dependencies.env ?? process.env;
+  const env = dependencies.env ?? runtimeEnvironment();
   const now = dependencies.now ?? (() => new Date());
   const tdxSettings = tdxConfig(env);
   const cwaSettings = cwaConfig(env);

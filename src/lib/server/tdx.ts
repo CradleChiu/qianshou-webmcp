@@ -125,7 +125,7 @@ export class TdxClient {
     const escapedKeyword = place.stopKeyword.replaceAll("'", "''");
     url.searchParams.set(
       "$filter",
-      `contains(StopName/Zh_tw,'${escapedKeyword}')`,
+      `contains(StopName/Zh_tw,'${escapedKeyword}') and EstimateTime ne null`,
     );
     url.searchParams.set("$orderby", "EstimateTime");
     url.searchParams.set("$top", "5");

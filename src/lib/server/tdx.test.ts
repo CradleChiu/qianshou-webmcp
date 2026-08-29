@@ -74,9 +74,11 @@ describe("TDX adapter", () => {
     );
     const dataRequest = requests[1];
     expect(dataRequest.url).toContain("EstimatedTimeOfArrival/City/Taipei");
-    expect(decodeURIComponent(dataRequest.url)).toContain(
+    const filter = new URL(dataRequest.url).searchParams.get("$filter");
+    expect(filter).toContain(
       "contains(StopName/Zh_tw,'臺大醫院')",
     );
+    expect(filter).toContain("EstimateTime ne null");
     expect(dataRequest.init?.headers).toMatchObject({
       authorization: "Bearer access-token",
     });
