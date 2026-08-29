@@ -197,4 +197,21 @@ describe("OTP adapter", () => {
       client.planAccessibleTrip(request, origin, destination),
     ).rejects.toThrow("GraphQL 回傳錯誤");
   });
+
+  it("合法空路線回應會標示查無班次，而不是資料格式錯誤", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json({ data: { planConnection: { edges: [] } } }),
+    );
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher },
+    );
+
+    await expect(
+      client.planAccessibleTrip(request, origin, destination),
+    ).rejects.toMatchObject({
+      kind: "no-results",
+      message: expect.stringContaining("可能已超過末班車"),
+    });
+  });
 });

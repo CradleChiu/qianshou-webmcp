@@ -128,6 +128,29 @@ describe("journey service orchestration", () => {
     );
   });
 
+  it("OTP 合法空路線回應會保留查無班次原因", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json({ data: { planConnection: { edges: [] } } }),
+    );
+    const services = createJourneyServices({
+      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      fetcher,
+    });
+
+    const result = await services.planAccessibleTrip({
+      origin: "臺北車站",
+      destination: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.status).toBe("unavailable");
+    expect(result.limitations[0]).toContain("可能已超過末班車");
+  });
+
   it("未知路線地點不呼叫 OTP", async () => {
     const fetcher: ServerFetch = vi.fn();
     const services = createJourneyServices({ env: {}, fetcher });

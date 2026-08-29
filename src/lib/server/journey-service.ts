@@ -123,6 +123,7 @@ function failureMessage(service: string, error: unknown): string {
     if (error.kind === "invalid-response") {
       return `${service}回傳的資料格式無法處理，請稍後再試。`;
     }
+    if (error.kind === "no-results") return error.message;
     if (error.kind === "network") return `${service}目前無法連線，請稍後再試。`;
   }
   return `${service}目前無法提供資料，請稍後再試。`;

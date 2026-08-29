@@ -297,14 +297,23 @@ function parseItinerary(response: OtpGraphqlResponse): OtpItinerary {
     );
   }
 
-  const itinerary = response.data?.planConnection?.edges
+  const edges = response.data?.planConnection?.edges;
+  if (!Array.isArray(edges)) {
+    throw new ExternalServiceError(
+      "OpenTripPlanner",
+      "invalid-response",
+      "OpenTripPlanner 路線回應缺少 edges。",
+    );
+  }
+
+  const itinerary = edges
     ?.map((edge) => edge?.node)
     .find((node): node is OtpItinerary => Boolean(node));
   if (!itinerary) {
     throw new ExternalServiceError(
       "OpenTripPlanner",
-      "invalid-response",
-      "OpenTripPlanner 沒有找到可用路線。",
+      "no-results",
+      "OpenTripPlanner 目前沒有找到可用路線；可能已超過末班車，請調整起訖點或稍後再試。",
     );
   }
   return itinerary;

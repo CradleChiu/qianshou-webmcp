@@ -10,7 +10,12 @@ export type ServerFetch = (
 export class ExternalServiceError extends Error {
   constructor(
     readonly service: string,
-    readonly kind: "timeout" | "http" | "invalid-response" | "network",
+    readonly kind:
+      | "timeout"
+      | "http"
+      | "invalid-response"
+      | "no-results"
+      | "network",
     message: string,
     readonly status?: number,
   ) {
