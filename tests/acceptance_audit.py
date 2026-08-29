@@ -221,12 +221,13 @@ def run_desktop(browser, results):
 
     origin.fill("")
     submit.click()
+    page.wait_for_function("document.activeElement?.id === 'origin'")
     required_state = page.evaluate(
         """
         () => ({
           activeId: document.activeElement?.id,
-          invalid: !document.querySelector('#origin').validity.valid,
-          message: document.querySelector('#origin').validationMessage,
+          ariaInvalid: document.querySelector('#origin').getAttribute('aria-invalid'),
+          message: document.querySelector('.form-error[role="alert"]')?.textContent?.trim(),
         })
         """
     )
@@ -234,7 +235,8 @@ def run_desktop(browser, results):
         results,
         "必填欄位錯誤復原",
         "PASS"
-        if required_state["activeId"] == "origin" and required_state["invalid"]
+        if required_state["activeId"] == "origin"
+        and required_state["ariaInvalid"] == "true"
         else "FAIL",
         required_state,
     )
@@ -246,13 +248,14 @@ def run_desktop(browser, results):
         else "WARN",
         {
             "message": required_state["message"],
-            "note": "目前使用瀏覽器原生驗證文字，語言取決於使用者的瀏覽器設定",
+            "note": "使用應用程式自訂的繁體中文錯誤訊息",
         },
     )
 
     origin.fill("台北車站")
     destination.fill("台北車站")
     submit.click()
+    page.wait_for_function("document.activeElement?.id === 'destination'")
     same_place = {
         "alert": page.locator(".form-error[role='alert']").inner_text(),
         "focus": active_control(page),
@@ -260,11 +263,11 @@ def run_desktop(browser, results):
     add(
         results,
         "相同起訖點錯誤",
-        "WARN",
-        {
-            **same_place,
-            "note": "錯誤會由 role=alert 宣告，但焦點未移回目的地欄位",
-        },
+        "PASS"
+        if same_place["focus"]["id"] == "destination"
+        and "起點和目的地相同" in same_place["alert"]
+        else "FAIL",
+        same_place,
     )
 
     destination.fill("台大醫院")
@@ -274,7 +277,7 @@ def run_desktop(browser, results):
     result_state = {
         "focus": focus_after_success,
         "announcement": page.locator(".sr-only").text_content().strip(),
-        "demoWarning": page.get_by_text("以下是示範資料", exact=True).is_visible(),
+        "demoWarning": page.get_by_text("結果包含示範資料", exact=True).is_visible(),
         "pauseDisabled": page.get_by_role("button", name="暫停朗讀").is_disabled(),
         "stopDisabled": page.get_by_role("button", name="停止朗讀").is_disabled(),
     }

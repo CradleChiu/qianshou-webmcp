@@ -2,8 +2,8 @@ import {
   getVehicleArrivals,
   getWeatherSafetyBrief,
   planAccessibleTrip,
-  type JourneyPreferences,
-} from "@/lib/domain/journey";
+} from "@/lib/client/journey-api";
+import type { JourneyPreferences } from "@/lib/domain/journey";
 
 export const WEBMCP_RESULT_EVENT = "qianshou:webmcp-result";
 

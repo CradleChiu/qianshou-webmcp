@@ -66,7 +66,7 @@ def run_desktop(browser):
 
     assert page.get_by_role("heading", name="你想從哪裡，到哪裡？").count() == 1
     assert page.get_by_text("可直接使用，也支援智慧助理", exact=True).count() == 1
-    assert page.get_by_text("示範模式，請勿用於實際出行", exact=True).is_visible()
+    assert page.get_by_text("部分功能仍在示範階段", exact=True).is_visible()
     assert page.locator("h1").count() == 1
     assert_no_duplicate_ids(page)
 
@@ -120,7 +120,7 @@ def run_mobile(browser):
     page.wait_for_load_state("networkidle")
 
     assert page.get_by_text("可直接使用", exact=True).count() == 1
-    assert page.get_by_text("示範模式，請勿用於實際出行", exact=True).is_visible()
+    assert page.get_by_text("部分功能仍在示範階段", exact=True).is_visible()
 
     page.keyboard.press("Tab")
     assert page.locator(":focus").inner_text() == "跳到主要內容"
@@ -128,6 +128,7 @@ def run_mobile(browser):
     page.get_by_label("要去哪裡？").fill("台北車站")
     page.get_by_role("button", name="整理這趟行程").click()
     assert page.get_by_role("alert").get_by_text("起點和目的地相同").is_visible()
+    page.wait_for_function("document.activeElement?.id === 'destination'")
 
     page.get_by_label("要去哪裡？").fill("台大醫院")
     page.get_by_role("button", name="整理這趟行程").click()

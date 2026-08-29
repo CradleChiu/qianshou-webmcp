@@ -12,8 +12,11 @@ export type JourneyRequest = {
 
 export type InformationSource = {
   name: string;
-  observedAt: string;
+  observedAt: string | null;
+  retrievedAt: string;
   kind: "official" | "development-fixture";
+  url?: string;
+  freshness: "fresh" | "stale" | "unknown";
 };
 
 export type JourneyStep = {
@@ -33,7 +36,7 @@ export type JourneyPlan = {
 export type VehicleArrival = {
   stopName: string;
   routeName: string;
-  minutes: number;
+  minutes: number | null;
   accessibilityNote: string;
 };
 
@@ -51,11 +54,17 @@ export type ServiceEnvelope<T> = {
   data: T;
 };
 
-const developmentSource = (): InformationSource => ({
-  name: "開發階段情境資料（尚未連接即時官方資料）",
-  observedAt: new Date().toISOString(),
-  kind: "development-fixture",
-});
+const developmentSource = (): InformationSource => {
+  const retrievedAt = new Date().toISOString();
+
+  return {
+    name: "開發階段情境資料（尚未連接即時官方資料）",
+    observedAt: null,
+    retrievedAt,
+    kind: "development-fixture",
+    freshness: "unknown",
+  };
+};
 
 function requirePlace(value: string, fieldName: string): string {
   const normalized = value.trim();

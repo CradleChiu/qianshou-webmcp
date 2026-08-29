@@ -1,0 +1,31 @@
+import { describe, expect, it } from "vitest";
+import {
+  normalizeTaiwanPlace,
+  resolveTaipeiTransitPlace,
+  resolveWeatherCounty,
+} from "./place-resolver";
+
+describe("place resolver", () => {
+  it("正規化台字、空白與站牌後綴", () => {
+    expect(normalizeTaiwanPlace("  台北  車站 ")).toBe("臺北 車站");
+    expect(resolveTaipeiTransitPlace("台北車站附近站牌")).toEqual({
+      canonicalName: "臺北車站",
+      city: "Taipei",
+      countyName: "臺北市",
+      stopKeyword: "臺北車站",
+    });
+  });
+
+  it("接受臺北市任意站名，但拒絕明確的外縣市", () => {
+    expect(resolveTaipeiTransitPlace("臺北市衡陽路口")?.stopKeyword).toBe(
+      "衡陽路口",
+    );
+    expect(resolveTaipeiTransitPlace("新北市板橋車站")).toBeNull();
+  });
+
+  it("從明確縣市或已知地標判斷天氣區域", () => {
+    expect(resolveWeatherCounty("高雄市美麗島站")).toBe("高雄市");
+    expect(resolveWeatherCounty("台大醫院")).toBe("臺北市");
+    expect(resolveWeatherCounty("不知道在哪裡")).toBeNull();
+  });
+});

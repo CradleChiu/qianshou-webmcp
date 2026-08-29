@@ -5,10 +5,13 @@ import {
   getVehicleArrivals,
   getWeatherSafetyBrief,
   planAccessibleTrip,
-  type JourneyPlan,
-  type ServiceEnvelope,
-  type VehicleArrival,
-  type WeatherBrief,
+} from "@/lib/client/journey-api";
+import type {
+  InformationSource,
+  JourneyPlan,
+  ServiceEnvelope,
+  VehicleArrival,
+  WeatherBrief,
 } from "@/lib/domain/journey";
 import {
   registerJourneyTools,
@@ -18,6 +21,7 @@ import {
 
 type ToolStatus = "checking" | "available" | "unavailable" | "failed";
 type SpeechStatus = "idle" | "speaking" | "paused";
+type InvalidField = "origin" | "destination" | null;
 
 type Results = {
   plan?: ServiceEnvelope<JourneyPlan>;
@@ -43,6 +47,41 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+const freshnessText: Record<InformationSource["freshness"], string> = {
+  fresh: "資料在預期更新時間內",
+  stale: "資料可能已過期",
+  unknown: "無法確認資料新鮮度",
+};
+
+function SourceMetadata({ source }: { source: InformationSource }) {
+  return (
+    <div className="source-metadata">
+      <p>
+        <span className={`source-kind source-kind--${source.kind}`}>
+          {source.kind === "official" ? "官方資料" : "示範資料"}
+        </span>
+        {source.name}
+      </p>
+      {source.observedAt ? (
+        <p>
+          資料時間：
+          <time dateTime={source.observedAt}>
+            {formatTimestamp(source.observedAt)}
+          </time>
+        </p>
+      ) : null}
+      <p>
+        取得時間：
+        <time dateTime={source.retrievedAt}>
+          {formatTimestamp(source.retrievedAt)}
+        </time>
+      </p>
+      <p>新鮮度：{freshnessText[source.freshness]}</p>
+      {source.url ? <a href={source.url}>查看官方 API 說明</a> : null}
+    </div>
+  );
+}
+
 export function JourneyWorkspace() {
   const [origin, setOrigin] = useState("台北車站");
   const [destination, setDestination] = useState("台大醫院");
@@ -54,7 +93,10 @@ export function JourneyWorkspace() {
   const [busy, setBusy] = useState(false);
   const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("idle");
   const [error, setError] = useState("");
+  const [invalidField, setInvalidField] = useState<InvalidField>(null);
   const [announcement, setAnnouncement] = useState("");
+  const originRef = useRef<HTMLInputElement>(null);
+  const destinationRef = useRef<HTMLInputElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -119,12 +161,31 @@ export function JourneyWorkspace() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setInvalidField(null);
     const normalizedOrigin = origin.trim();
     const normalizedDestination = destination.trim();
 
+    if (normalizedOrigin.length < 2) {
+      setError("起點至少需要兩個字，請確認後再試一次。");
+      setInvalidField("origin");
+      setAnnouncement("行程未完成：起點至少需要兩個字。");
+      window.requestAnimationFrame(() => originRef.current?.focus());
+      return;
+    }
+
+    if (normalizedDestination.length < 2) {
+      setError("目的地至少需要兩個字，請確認後再試一次。");
+      setInvalidField("destination");
+      setAnnouncement("行程未完成：目的地至少需要兩個字。");
+      window.requestAnimationFrame(() => destinationRef.current?.focus());
+      return;
+    }
+
     if (normalizedOrigin === normalizedDestination) {
       setError("起點和目的地相同，請確認後再試一次。");
+      setInvalidField("destination");
       setAnnouncement("行程未完成：起點和目的地相同，請確認輸入。");
+      window.requestAnimationFrame(() => destinationRef.current?.focus());
       return;
     }
 
@@ -145,7 +206,7 @@ export function JourneyWorkspace() {
       ]);
 
       setResults({ plan, arrivals, weather });
-      setAnnouncement("行前資訊已整理完成。目前顯示的是開發階段情境資料。");
+      setAnnouncement("行前資訊已整理完成，請逐項確認資料來源與限制。");
       window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "無法整理行程。";
@@ -208,6 +269,10 @@ export function JourneyWorkspace() {
   }
 
   const hasResults = Boolean(results.plan || results.arrivals || results.weather);
+  const hasFixtureResults = Object.values(results).some(
+    (result) => result?.source.kind === "development-fixture",
+  );
+  const nextArrival = results.arrivals?.data[0];
 
   return (
     <>
@@ -227,8 +292,8 @@ export function JourneyWorkspace() {
       </header>
 
       <div className="demo-banner" aria-label="目前資料狀態">
-        <strong>示範模式，請勿用於實際出行</strong>
-        <span>交通與天氣尚未連接即時官方資料。</span>
+        <strong>部分功能仍在示範階段</strong>
+        <span>每項結果會標示資料來源與限制；請勿直接據此出行。</span>
       </div>
 
       <main id="main-content" className="workspace">
@@ -249,15 +314,23 @@ export function JourneyWorkspace() {
               <h2 id="planning-title">設定這趟行程</h2>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} noValidate>
               <div className="field-group">
                 <label htmlFor="origin">從哪裡出發？</label>
                 <input
                   id="origin"
                   name="origin"
-                  aria-describedby="origin-hint"
+                  ref={originRef}
+                  aria-describedby={`origin-hint${invalidField === "origin" ? " form-error" : ""}`}
+                  aria-invalid={invalidField === "origin"}
                   value={origin}
-                  onChange={(event) => setOrigin(event.target.value)}
+                  onChange={(event) => {
+                    setOrigin(event.target.value);
+                    if (invalidField === "origin") {
+                      setInvalidField(null);
+                      setError("");
+                    }
+                  }}
                   autoComplete="street-address"
                   enterKeyHint="next"
                   maxLength={80}
@@ -273,9 +346,17 @@ export function JourneyWorkspace() {
                 <input
                   id="destination"
                   name="destination"
-                  aria-describedby="destination-hint"
+                  ref={destinationRef}
+                  aria-describedby={`destination-hint${invalidField === "destination" ? " form-error" : ""}`}
+                  aria-invalid={invalidField === "destination"}
                   value={destination}
-                  onChange={(event) => setDestination(event.target.value)}
+                  onChange={(event) => {
+                    setDestination(event.target.value);
+                    if (invalidField === "destination") {
+                      setInvalidField(null);
+                      setError("");
+                    }
+                  }}
                   autoComplete="street-address"
                   enterKeyHint="done"
                   maxLength={80}
@@ -315,7 +396,7 @@ export function JourneyWorkspace() {
               </fieldset>
 
               {error ? (
-                <p className="form-error" role="alert">
+                <p id="form-error" className="form-error" role="alert">
                   {error}
                 </p>
               ) : null}
@@ -342,10 +423,12 @@ export function JourneyWorkspace() {
 
             {hasResults ? (
               <div className="result-content">
-                <p className="result-demo-label">
-                  <strong>以下是示範資料</strong>
-                  數字與路線不是即時資訊，請勿據此出行。
-                </p>
+                {hasFixtureResults ? (
+                  <p className="result-demo-label">
+                    <strong>結果包含示範資料</strong>
+                    行程路線仍不是即時資訊；請逐項確認下方來源。
+                  </p>
+                ) : null}
                 {results.plan ? (
                   <>
                     <div className="journey-summary">
@@ -411,20 +494,40 @@ export function JourneyWorkspace() {
                 <div className="brief-grid">
                   {results.arrivals ? (
                     <article className="brief-card" aria-labelledby="arrival-title">
-                      <p className="card-label">下一班車</p>
-                      <h3 id="arrival-title">
-                        {results.arrivals.data[0]?.minutes ?? "未知"} 分鐘
-                      </h3>
-                      <p>
-                        {results.arrivals.data[0]?.routeName}・
-                        {results.arrivals.data[0]?.accessibilityNote}
+                      <p className="card-label">
+                        下一班車
+                        <span className={`source-kind source-kind--${results.arrivals.source.kind}`}>
+                          {results.arrivals.source.kind === "official" ? "官方" : "示範"}
+                        </span>
                       </p>
+                      {results.arrivals.status === "unavailable" || !nextArrival ? (
+                        <>
+                          <h3 id="arrival-title">暫時無法取得</h3>
+                          <p>{results.arrivals.limitations[0]}</p>
+                        </>
+                      ) : (
+                        <>
+                          <h3 id="arrival-title">
+                            {nextArrival.minutes === null
+                              ? "到站時間未知"
+                              : `${nextArrival.minutes} 分鐘`}
+                          </h3>
+                          <p>
+                            {nextArrival.routeName}・{nextArrival.accessibilityNote}
+                          </p>
+                        </>
+                      )}
                     </article>
                   ) : null}
 
                   {results.weather ? (
                     <article className="brief-card brief-card--weather" aria-labelledby="weather-title">
-                      <p className="card-label">目的地天氣</p>
+                      <p className="card-label">
+                        目的地天氣
+                        <span className={`source-kind source-kind--${results.weather.source.kind}`}>
+                          {results.weather.source.kind === "official" ? "官方" : "示範"}
+                        </span>
+                      </p>
                       <h3 id="weather-title">{results.weather.data.headline}</h3>
                       <p>{results.weather.data.advice}</p>
                     </article>
@@ -436,13 +539,7 @@ export function JourneyWorkspace() {
                   {results.plan ? (
                     <section aria-labelledby="plan-source-title">
                       <h3 id="plan-source-title">行程</h3>
-                      <p>{results.plan.source.name}</p>
-                      <p>
-                        產生時間：
-                        <time dateTime={results.plan.source.observedAt}>
-                          {formatTimestamp(results.plan.source.observedAt)}
-                        </time>
-                      </p>
+                      <SourceMetadata source={results.plan.source} />
                       <ul>
                         {results.plan.limitations.map((limitation) => (
                           <li key={limitation}>{limitation}</li>
@@ -453,13 +550,7 @@ export function JourneyWorkspace() {
                   {results.arrivals ? (
                     <section aria-labelledby="arrival-source-title">
                       <h3 id="arrival-source-title">到站</h3>
-                      <p>{results.arrivals.source.name}</p>
-                      <p>
-                        產生時間：
-                        <time dateTime={results.arrivals.source.observedAt}>
-                          {formatTimestamp(results.arrivals.source.observedAt)}
-                        </time>
-                      </p>
+                      <SourceMetadata source={results.arrivals.source} />
                       <ul>
                         {results.arrivals.limitations.map((limitation) => (
                           <li key={limitation}>{limitation}</li>
@@ -470,13 +561,7 @@ export function JourneyWorkspace() {
                   {results.weather ? (
                     <section aria-labelledby="weather-source-title">
                       <h3 id="weather-source-title">天氣</h3>
-                      <p>{results.weather.source.name}</p>
-                      <p>
-                        產生時間：
-                        <time dateTime={results.weather.source.observedAt}>
-                          {formatTimestamp(results.weather.source.observedAt)}
-                        </time>
-                      </p>
+                      <SourceMetadata source={results.weather.source} />
                       <ul>
                         {results.weather.limitations.map((limitation) => (
                           <li key={limitation}>{limitation}</li>
