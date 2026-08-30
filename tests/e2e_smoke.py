@@ -146,15 +146,22 @@ def run_desktop(browser):
     assert page.evaluate(
         "() => window.__webmcpTools.prepare_accessible_journey.description.includes('natural place names')"
     )
+    tool_properties = page.evaluate(
+        "() => window.__webmcpTools.prepare_accessible_journey.inputSchema.properties"
+    )
+    assert "minimizeWalking" not in tool_properties
+    assert "minimizeTransfers" not in tool_properties
+    assert "stepFree" not in tool_properties
+    assert page.locator('input[type="checkbox"]').count() == 0
+    assert page.get_by_text(
+        "少走路、少轉乘，避開資料中已知的階梯。", exact=True
+    ).is_visible()
 
     journey = page.evaluate(
         """
         () => window.__webmcpTools.prepare_accessible_journey.execute({
           origin: '台北車站',
-          destination: '台大醫院',
-          minimizeWalking: true,
-          minimizeTransfers: true,
-          stepFree: true
+          destination: '台大醫院'
         })
         """
     )
@@ -175,7 +182,7 @@ def run_desktop(browser):
     ).is_visible()
     assert page.get_by_text("今明 36 小時", exact=False).count() == 0
     assert page.get_by_text("從臺北車站到臺大醫院：建議行程").count() == 1
-    assert page.get_by_text("偏好核對", exact=True).is_visible()
+    assert page.get_by_text("規劃原則核對", exact=True).is_visible()
     assert page.locator(".brief-card .card-label").filter(
         has_text="這趟下一班車"
     ).is_visible()
@@ -307,7 +314,7 @@ def run_place_disambiguation(browser, viewport, artifact_label):
                             "firstTransitLeg": None,
                             "preferenceAssessment": {
                                 "status": "needs-attention",
-                                "headline": "偏好已套用；無階梯動線仍要現場確認",
+                                "headline": "已避開已知階梯；其他路段仍要現場確認",
                                 "details": ["仍請確認現場通行情況。"],
                             },
                             "alternatives": [{
@@ -334,7 +341,7 @@ def run_place_disambiguation(browser, viewport, artifact_label):
                                 },
                                 "preferenceAssessment": {
                                     "status": "needs-attention",
-                                    "headline": "步行已減少；無階梯動線仍要現場確認",
+                                    "headline": "步行已減少；其他路段仍要現場確認",
                                     "details": ["步行約 8 分鐘。"],
                                 },
                             }],
@@ -450,7 +457,7 @@ def run_mobile(browser):
     ).is_visible()
     arrival_heading = page.locator(".brief-card").first.locator("h3").inner_text()
     assert arrival_heading in ["目前未偵測到列車進站", "列車正在進站"]
-    assert page.get_by_text("偏好核對", exact=True).is_visible()
+    assert page.get_by_text("規劃原則核對", exact=True).is_visible()
     assert page.get_by_text("目的地天氣").is_visible()
     assert page.locator(".brief-card--weather").get_by_text(
         "3 小時分段", exact=False

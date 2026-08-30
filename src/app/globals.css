@@ -205,7 +205,7 @@ a:focus-visible,
 
 .field-group + .field-group { margin-top: 1.5rem; }
 
-.field-group label, .preferences legend {
+.field-group label {
   display: block;
   margin-bottom: 0.4rem;
   font-weight: 900;
@@ -274,32 +274,34 @@ a:focus-visible,
 .place-choice-name { font-size: 1.05rem; font-weight: 900; }
 .place-choice small { color: var(--route); font-weight: 800; }
 
-.preferences {
-  display: grid;
+.planning-defaults {
   margin: 2rem 0 0;
-  padding: 0;
-  border: 0;
-  gap: 0.65rem;
-}
-
-.preferences legend { margin-bottom: 0.75rem; }
-
-.preferences label {
-  display: flex;
-  min-height: 3.25rem;
-  padding: 0.75rem 0.9rem;
-  align-items: center;
-  gap: 0.75rem;
-  border: 1px solid var(--line);
+  padding: 0.9rem 1rem;
+  border-left: 6px solid var(--route);
   background: var(--mist);
-  font-weight: 700;
 }
 
-.preferences input {
-  width: 1.35rem;
-  height: 1.35rem;
-  flex: 0 0 auto;
-  accent-color: var(--route);
+.planning-defaults p { margin: 0; }
+
+.planning-defaults-label {
+  color: var(--route);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.planning-defaults .planning-defaults-priority {
+  margin-top: 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.planning-defaults .planning-defaults-limit {
+  margin-top: 0.4rem;
+  color: var(--asphalt-soft);
+  font-size: 0.9rem;
+  line-height: 1.55;
 }
 
 .form-error {

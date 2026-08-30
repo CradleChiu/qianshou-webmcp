@@ -100,7 +100,6 @@ def target_sizes(page):
         () => {
           const elements = [
             ...document.querySelectorAll('.field-group input'),
-            ...document.querySelectorAll('.preferences label'),
             ...document.querySelectorAll('button'),
             ...document.querySelectorAll('summary')
           ].filter((element) => {
@@ -195,16 +194,13 @@ def run_desktop(browser, results):
     )
 
     tab_order = []
-    for _ in range(7):
+    for _ in range(4):
         page.keyboard.press("Tab")
         tab_order.append(active_control(page))
     expected_names = [
         "跳到主要內容",
         "從哪裡出發？",
         "要去哪裡？",
-        "少走一點路",
-        "少轉乘",
-        "需要無階梯動線",
         "→整理這趟行程",
     ]
     actual_names = [item["name"].replace("\n", "").replace(" ", "") for item in tab_order]

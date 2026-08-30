@@ -295,7 +295,7 @@ describe("OTP adapter", () => {
     expect(result.data.walkingMinutes).toBe(4);
     expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
     expect(result.data.steps.map((step) => step.label)).toContain("搭乘R");
-    expect(result.data.preferenceAssessment.headline).toContain("無階梯動線");
+    expect(result.data.preferenceAssessment.headline).toContain("避開已知階梯");
     expect(result.data.alternatives).toEqual([
       expect.objectContaining({
         label: "快 2 分鐘",

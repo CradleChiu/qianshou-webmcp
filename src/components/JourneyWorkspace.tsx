@@ -5,6 +5,7 @@ import {
   getVehicleArrivals as fetchVehicleArrivals,
   prepareAccessibleJourney,
 } from "@/lib/client/journey-api";
+import { DEFAULT_JOURNEY_PREFERENCES } from "@/lib/domain/journey";
 import type {
   InformationSource,
   JourneyAlternative,
@@ -171,9 +172,6 @@ function selectAlternativePlan(
 export function JourneyWorkspace() {
   const [origin, setOrigin] = useState("台北車站");
   const [destination, setDestination] = useState("台大醫院");
-  const [minimizeWalking, setMinimizeWalking] = useState(true);
-  const [minimizeTransfers, setMinimizeTransfers] = useState(true);
-  const [stepFree, setStepFree] = useState(true);
   const [toolStatus, setToolStatus] = useState<ToolStatus>("checking");
   const [results, setResults] = useState<Results>({});
   const [busy, setBusy] = useState(false);
@@ -243,13 +241,6 @@ export function JourneyWorkspace() {
         origin: originValue,
         destination: destinationValue,
       });
-      if (typeof input.minimizeWalking === "boolean") {
-        setMinimizeWalking(input.minimizeWalking);
-      }
-      if (typeof input.minimizeTransfers === "boolean") {
-        setMinimizeTransfers(input.minimizeTransfers);
-      }
-      if (typeof input.stepFree === "boolean") setStepFree(input.stepFree);
       setAnnouncement(
         (result as JourneyPreparation).state === "needs-confirmation"
           ? "智慧助理找到幾個相近地點，請先確認正確的位置。"
@@ -364,7 +355,7 @@ export function JourneyWorkspace() {
         destination: normalizedDestination,
         originCandidateId: existingOrigin?.id,
         destinationCandidateId: existingDestination?.id,
-        preferences: { minimizeWalking, minimizeTransfers, stepFree },
+        preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
       });
       applyPreparation(preparation, {
         origin: normalizedOrigin,
@@ -484,7 +475,7 @@ export function JourneyWorkspace() {
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
       ...arrivalSpeech,
       ...weatherSpeech,
-      "路況與無階梯資訊可能不完整，出發前請再確認現場。",
+      "避開階梯所需的資料可能不完整，出發前請再確認現場。",
     ].join(" ");
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-TW";
@@ -675,7 +666,7 @@ export function JourneyWorkspace() {
             <h1 id="page-title">你想從哪裡，到哪裡？</h1>
           </div>
           <p className="intro-copy">
-            輸入起點、目的地與行動偏好。我們會把路線、到站與天氣放在同一頁，讓你逐項確認。
+            輸入起點與目的地。我們會優先安排少走路、少轉乘的方案，並把路線、到站與天氣放在同一頁。
           </p>
         </section>
 
@@ -731,33 +722,19 @@ export function JourneyWorkspace() {
                 {renderPlaceConfirmation("destination")}
               </div>
 
-              <fieldset className="preferences">
-                <legend>這趟路希望怎麼走？</legend>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={minimizeWalking}
-                    onChange={(event) => setMinimizeWalking(event.target.checked)}
-                  />
-                  <span>少走一點路</span>
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={minimizeTransfers}
-                    onChange={(event) => setMinimizeTransfers(event.target.checked)}
-                  />
-                  <span>少轉乘</span>
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={stepFree}
-                    onChange={(event) => setStepFree(event.target.checked)}
-                  />
-                  <span>需要無階梯動線</span>
-                </label>
-              </fieldset>
+              <div
+                className="planning-defaults"
+                role="note"
+                aria-label="固定的行程規劃原則"
+              >
+                <p className="planning-defaults-label">我們會這樣安排</p>
+                <p className="planning-defaults-priority">
+                  少走路、少轉乘，避開資料中已知的階梯。
+                </p>
+                <p className="planning-defaults-limit">
+                  電梯、坡度與施工等現場狀態仍會在行程中標示為待確認。
+                </p>
+              </div>
 
               {error ? (
                 <p id="form-error" className="form-error" role="alert">
@@ -829,7 +806,7 @@ export function JourneyWorkspace() {
                       className={`preference-check preference-check--${results.plan.data.preferenceAssessment.status}`}
                       aria-labelledby="preference-check-title"
                     >
-                      <p className="preference-check-label">偏好核對</p>
+                      <p className="preference-check-label">規劃原則核對</p>
                       <h3 id="preference-check-title">
                         {results.plan.data.preferenceAssessment.headline}
                       </h3>

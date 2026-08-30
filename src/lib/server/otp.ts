@@ -605,7 +605,7 @@ function preferenceAssessment(
   if (preferences.stepFree) {
     needsAttention = true;
     details.push(
-      "已要求無階梯動線，但地圖與班次的無障礙標記可能缺漏，不能當成現場可通行保證。",
+      "已避開資料中標記的階梯，但電梯、坡度與施工資訊可能缺漏，不能當成現場可通行保證。",
     );
   }
 
@@ -613,8 +613,8 @@ function preferenceAssessment(
     preferences.minimizeWalking && plan.walkingMinutes >= 15
       ? `少走偏好已套用，但仍需走約 ${plan.walkingMinutes} 分鐘`
       : preferences.stepFree
-        ? "偏好已套用；無階梯動線仍要現場確認"
-        : "這個方案符合目前偏好";
+        ? "已避開已知階梯；其他路段仍要現場確認"
+        : "這個方案符合目前規劃原則";
 
   return {
     status: needsAttention ? "needs-attention" : "met",
@@ -789,7 +789,7 @@ export class OtpClient {
         "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
         "靜態 GTFS 不含臨時停駛、延誤與現場施工；出發前仍須確認營運公告。",
         request.preferences.stepFree
-          ? "無階梯偏好只依 GTFS／OpenStreetMap 已標記資料計算；未知或缺漏欄位不能視為可通行保證。"
+          ? "避開階梯的要求只依 GTFS／OpenStreetMap 已標記資料計算；未知或缺漏欄位不能視為可通行保證。"
           : "沿途階梯、坡度、電梯與人行環境尚未逐段確認。",
       ],
       data: {

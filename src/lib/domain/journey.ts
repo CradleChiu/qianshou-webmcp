@@ -4,6 +4,12 @@ export type JourneyPreferences = {
   stepFree: boolean;
 };
 
+export const DEFAULT_JOURNEY_PREFERENCES: JourneyPreferences = {
+  minimizeWalking: true,
+  minimizeTransfers: true,
+  stepFree: true,
+};
+
 export type JourneyRequest = {
   origin: string;
   destination: string;
@@ -242,8 +248,8 @@ export async function planAccessibleTrip(
       preferenceAssessment: {
         status: request.preferences.stepFree ? "needs-attention" : "met",
         headline: request.preferences.stepFree
-          ? "偏好已套用；無階梯動線仍要現場確認"
-          : "這個方案符合目前偏好",
+          ? "已避開已知階梯；其他路段仍要現場確認"
+          : "這個方案符合目前規劃原則",
         details: [
           `步行約 ${walkingMinutes} 分鐘、轉乘 ${transfers} 次。`,
           ...(request.preferences.stepFree
