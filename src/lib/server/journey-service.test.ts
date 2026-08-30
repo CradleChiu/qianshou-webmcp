@@ -2,7 +2,169 @@ import { describe, expect, it, vi } from "vitest";
 import type { ServerFetch } from "./http";
 import { createJourneyServices } from "./journey-service";
 
+function otpWalkingResponse() {
+  return {
+    data: {
+      planConnection: {
+        edges: [
+          {
+            node: {
+              start: "2026-08-30T09:00:00+08:00",
+              end: "2026-08-30T09:14:00+08:00",
+              duration: 840,
+              walkTime: 840,
+              walkDistance: 1_000,
+              numberOfTransfers: 0,
+              accessibilityScore: 0.8,
+              legs: [
+                {
+                  mode: "WALK",
+                  transitLeg: false,
+                  duration: 840,
+                  distance: 1_000,
+                  from: { name: "Origin" },
+                  to: { name: "Destination" },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function ambiguousPlaces() {
+  return [
+    {
+      place_id: 101,
+      lat: "25.043",
+      lon: "121.516",
+      name: "中正路",
+      display_name: "中正路一段 100 號, 中正區, 臺北市, 臺灣",
+      category: "highway",
+      type: "residential",
+      address: { city: "臺北市" },
+    },
+    {
+      place_id: 102,
+      lat: "25.018",
+      lon: "121.456",
+      name: "中正路",
+      display_name: "中正路 200 號, 板橋區, 新北市, 臺灣",
+      category: "highway",
+      type: "residential",
+      address: { city: "新北市" },
+    },
+  ];
+}
+
 describe("journey service orchestration", () => {
+  it("單一準備流程會自行完成地點、路線、到站與天氣", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json(otpWalkingResponse()),
+    );
+    const services = createJourneyServices({
+      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      fetcher,
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "台北車站",
+      destination: "台大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.state).toBe("ready");
+    expect(result.origin?.name).toBe("臺北車站");
+    expect(result.destination?.name).toBe("臺大醫院");
+    expect(result.plan?.data.summary).toBe("從臺北車站到臺大醫院：建議行程");
+    expect(result.arrivals?.data.matchType).toBe("no-transit");
+    expect(result.weather).toBeDefined();
+  });
+
+  it("自然語言地點有多個候選時停下來請使用者確認", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json(ambiguousPlaces()),
+    );
+    const services = createJourneyServices({ env: {}, fetcher });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "中正路",
+      destination: "台大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.state).toBe("needs-confirmation");
+    expect(result.origin).toBeNull();
+    expect(result.destination?.name).toBe("臺大醫院");
+    expect(result.confirmations.origin?.data.candidates).toHaveLength(2);
+    expect(result.plan).toBeUndefined();
+  });
+
+  it("不接受不存在的候選 ID，也不替使用者猜地點", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json(ambiguousPlaces()),
+    );
+    const services = createJourneyServices({ env: {}, fetcher });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "中正路",
+      destination: "台大醫院",
+      originCandidateId: "osm:not-returned",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.state).toBe("needs-confirmation");
+    expect(result.origin).toBeNull();
+    expect(result.plan).toBeUndefined();
+  });
+
+  it("使用者確認候選後由同一流程接續完成行程", async () => {
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      input.toString().includes("nominatim.test")
+        ? Response.json(ambiguousPlaces())
+        : Response.json(otpWalkingResponse()),
+    );
+    const services = createJourneyServices({
+      env: {
+        NOMINATIM_SEARCH_URL: "https://nominatim.test/search",
+        OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1",
+      },
+      fetcher,
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "中正路",
+      destination: "台大醫院",
+      originCandidateId: "osm:101",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.state).toBe("ready");
+    expect(result.origin).toEqual(
+      expect.objectContaining({ id: "osm:101", name: "中正路" }),
+    );
+    expect(result.confirmations).toEqual({});
+    expect(result.plan?.data.summary).toBe("從中正路到臺大醫院：建議行程");
+  });
+
   it("常用地點搜尋直接回傳唯一候選，不呼叫外部服務", async () => {
     const fetcher: ServerFetch = vi.fn();
     const services = createJourneyServices({ env: {}, fetcher });

@@ -2,6 +2,8 @@ import {
   getVehicleArrivals as getFixtureVehicleArrivals,
   getWeatherSafetyBrief as getFixtureWeatherSafetyBrief,
   normalizeJourneyRequest,
+  type JourneyPreparation,
+  type JourneyPreparationRequest,
   type JourneyPlan,
   type JourneyRequest,
   type PlaceCandidate,
@@ -132,23 +134,24 @@ function unavailableEnvelope<T>(
 
 function failureMessage(service: string, error: unknown): string {
   if (error instanceof ExternalServiceError) {
-    if (error.kind === "timeout") return `${service}回應逾時，請稍後再試。`;
+    if (error.kind === "timeout") return `${service}暫時沒有回應，請稍後再試。`;
     if (error.kind === "http") {
-      if (error.status === 401 || error.status === 403) {
-        return `${service}身分驗證失敗，請檢查伺服器端金鑰。`;
-      }
       if (error.status === 429) {
-        return `${service}已達查詢頻率限制，請稍後再試。`;
+        return `目前查詢人數較多，請稍後再試。`;
       }
-      return `${service}回傳 HTTP ${error.status ?? "錯誤"}，請稍後再試。`;
+      return `${service}暫時無法取得，請稍後再試。`;
     }
     if (error.kind === "invalid-response") {
-      return `${service}回傳的資料格式無法處理，請稍後再試。`;
+      return `${service}暫時無法整理，請稍後再試。`;
     }
-    if (error.kind === "no-results") return error.message;
-    if (error.kind === "network") return `${service}目前無法連線，請稍後再試。`;
+    if (error.kind === "no-results") {
+      return service === "路線服務"
+        ? "目前找不到可用路線；可能已超過末班車，請調整起訖點或稍後再試。"
+        : `${service}目前找不到可用結果，請調整地點或稍後再試。`;
+    }
+    if (error.kind === "network") return `${service}暫時無法取得，請稍後再試。`;
   }
-  return `${service}目前無法提供資料，請稍後再試。`;
+  return `${service}暫時無法取得，請稍後再試。`;
 }
 
 function normalizedPlaceName(value: string): string {
@@ -199,7 +202,7 @@ export function createJourneyServices(
     now,
   });
 
-  return {
+  const services = {
     async searchPlaces(
       query: string,
     ): Promise<ServiceEnvelope<PlaceSearchResult>> {
@@ -258,8 +261,8 @@ export function createJourneyServices(
       ]).slice(0, 6);
       const failures = [
         ...(!tdx ? ["尚未設定 TDX 金鑰，因此本次只搜尋 OpenStreetMap 地點。"] : []),
-        ...(tdxResult.status === "rejected" ? [failureMessage("TDX 站點搜尋", tdxResult.reason)] : []),
-        ...(osmResult.status === "rejected" ? [failureMessage("OpenStreetMap 地點搜尋", osmResult.reason)] : []),
+        ...(tdxResult.status === "rejected" ? [failureMessage("公車站資料", tdxResult.reason)] : []),
+        ...(osmResult.status === "rejected" ? [failureMessage("地圖地點資料", osmResult.reason)] : []),
       ];
       const retrievedAt = now().toISOString();
       return {
@@ -350,7 +353,7 @@ export function createJourneyServices(
           emptyPlan,
           "OpenTripPlanner（TDX GTFS＋© OpenStreetMap contributors）",
           "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/",
-          failureMessage("OpenTripPlanner", error),
+          failureMessage("路線服務", error),
           now(),
           "integrated",
         );
@@ -380,7 +383,7 @@ export function createJourneyServices(
             freshness: "unknown",
           },
           limitations: [
-            "OTP 選出的行程沒有大眾運輸路段，因此不需要查詢到站倒數。",
+            "這趟行程不需要搭車，因此沒有到站倒數。",
             "系統沒有顯示與這趟行程無關的附近公車。",
           ],
           data: {
@@ -411,7 +414,7 @@ export function createJourneyServices(
           },
           "OpenTripPlanner 路線＋TDX 到站能力",
           "https://tdx.transportdata.tw/api-service/swagger",
-          `行程第一段大眾運輸是${tripLeg.routeName}${modeName}；TDX 目前無法提供可用的進站前倒數，系統沒有改用附近公車替代。`,
+          `這趟先搭${tripLeg.routeName}${modeName}；目前沒有可用的進站前倒數，系統沒有改用附近公車替代。`,
           now(),
           "integrated",
         );
@@ -427,7 +430,7 @@ export function createJourneyServices(
             },
             "TDX 運輸資料流通服務",
             "https://tdx.transportdata.tw/api-service/swagger",
-            "尚未設定 TDX 金鑰，無法查詢這趟公車的精確到站倒數。",
+            "目前無法查詢這趟公車的精確到站倒數，請稍後再試。",
             now(),
           );
         }
@@ -442,7 +445,7 @@ export function createJourneyServices(
             },
             "TDX 運輸資料流通服務",
             "https://tdx.transportdata.tw/api-service/swagger",
-            failureMessage("TDX", error),
+            failureMessage("到站服務", error),
             now(),
           );
         }
@@ -475,7 +478,7 @@ export function createJourneyServices(
           },
           "TDX 運輸資料流通服務",
           "https://tdx.transportdata.tw/api-service/swagger",
-          failureMessage("TDX", error),
+          failureMessage("到站服務", error),
           now(),
         );
       }
@@ -513,10 +516,138 @@ export function createJourneyServices(
           },
           "中央氣象署開放資料平臺",
           "https://opendata.cwa.gov.tw/dist/opendata-swagger.html",
-          failureMessage("中央氣象署", error),
+          failureMessage("天氣服務", error),
           now(),
         );
       }
+    },
+  };
+
+  function selectedCandidate(
+    search: ServiceEnvelope<PlaceSearchResult>,
+    candidateId?: string,
+  ): PlaceCandidate | null {
+    if (candidateId) {
+      return (
+        search.data.candidates.find((candidate) => candidate.id === candidateId) ??
+        null
+      );
+    }
+    return search.data.candidates.length === 1
+      ? search.data.candidates[0]
+      : null;
+  }
+
+  function weatherLocation(candidate: PlaceCandidate): string {
+    const county =
+      candidate.city === "Taipei"
+        ? "臺北市"
+        : candidate.city === "NewTaipei"
+          ? "新北市"
+          : "";
+    return `${county}${candidate.name} ${candidate.description}`.trim();
+  }
+
+  return {
+    ...services,
+    async prepareAccessibleJourney(
+      request: JourneyPreparationRequest,
+    ): Promise<JourneyPreparation> {
+      const originQuery = request.origin.trim();
+      const destinationQuery = request.destination.trim();
+      const [originSearch, destinationSearch] = await Promise.all([
+        services.searchPlaces(originQuery),
+        services.searchPlaces(destinationQuery),
+      ]);
+      const origin = selectedCandidate(
+        originSearch,
+        request.originCandidateId,
+      );
+      const destination = selectedCandidate(
+        destinationSearch,
+        request.destinationCandidateId,
+      );
+
+      if (
+        !originSearch.data.candidates.length ||
+        !destinationSearch.data.candidates.length
+      ) {
+        const missing = !originSearch.data.candidates.length ? "起點" : "目的地";
+        return {
+          state: "unavailable",
+          message: `找不到可規劃的${missing}，請加入行政區、道路或站名後再試。`,
+          origin,
+          destination,
+          confirmations: {
+            ...(!originSearch.data.candidates.length
+              ? { origin: originSearch }
+              : {}),
+            ...(!destinationSearch.data.candidates.length
+              ? { destination: destinationSearch }
+              : {}),
+          },
+        };
+      }
+
+      if (!origin || !destination) {
+        return {
+          state: "needs-confirmation",
+          message: "找到多個同名或相近地點，請先確認正確的起點或目的地。",
+          origin,
+          destination,
+          confirmations: {
+            ...(!origin ? { origin: originSearch } : {}),
+            ...(!destination ? { destination: destinationSearch } : {}),
+          },
+        };
+      }
+
+      const sameLocation =
+        Math.abs(origin.latitude - destination.latitude) < 0.00001 &&
+        Math.abs(origin.longitude - destination.longitude) < 0.00001;
+      if (sameLocation) {
+        return {
+          state: "unavailable",
+          message: "起點和目的地是同一個地點，請確認後再試一次。",
+          origin,
+          destination,
+          confirmations: {},
+        };
+      }
+
+      const weatherPromise = services.getWeatherSafetyBrief(
+        weatherLocation(destination),
+      );
+      const plan = await services.planAccessibleTrip({
+        origin: `${origin.latitude.toFixed(6)},${origin.longitude.toFixed(6)}`,
+        destination: `${destination.latitude.toFixed(6)},${destination.longitude.toFixed(6)}`,
+        originLabel: origin.name,
+        destinationLabel: destination.name,
+        preferences: request.preferences,
+      });
+      const arrivals =
+        plan.status === "unavailable"
+          ? undefined
+          : await services.getVehicleArrivals({
+              stopName:
+                plan.data.firstTransitLeg?.stopName ?? `${origin.name}附近站牌`,
+              tripLeg: plan.data.firstTransitLeg,
+            });
+      const weather = await weatherPromise;
+
+      return {
+        state: plan.status === "unavailable" ? "unavailable" : "ready",
+        message:
+          plan.status === "unavailable"
+            ? "地點已確認，但這次暫時無法規劃路線。"
+            : "行前資訊已整理完成。",
+        origin,
+        destination,
+        confirmations: {},
+        plan,
+        arrivals,
+        weather,
+      };
     },
   };
 }

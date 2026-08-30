@@ -1,15 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import {
-  getVehicleArrivals,
-  getWeatherSafetyBrief,
-  planAccessibleTrip,
-  searchPlaces,
-} from "@/lib/client/journey-api";
+import { prepareAccessibleJourney } from "@/lib/client/journey-api";
 import type {
   InformationSource,
   JourneyPlan,
+  JourneyPreparation,
   PlaceCandidate,
   PlaceSearchResult,
   ServiceEnvelope,
@@ -89,23 +85,9 @@ function speechFailureMessage(error: SpeechSynthesisErrorCode): string {
   return "裝置目前無法完成語音朗讀，請使用螢幕閱讀器閱讀行程。";
 }
 
-function coordinateOf(candidate: PlaceCandidate): string {
-  return `${candidate.latitude.toFixed(6)},${candidate.longitude.toFixed(6)}`;
-}
-
-function weatherLocationOf(candidate: PlaceCandidate): string {
-  const county =
-    candidate.city === "Taipei"
-      ? "臺北市"
-      : candidate.city === "NewTaipei"
-        ? "新北市"
-        : "";
-  return `${county}${candidate.name} ${candidate.description}`.trim();
-}
-
 function candidateSourceText(source: PlaceCandidate["source"]): string {
-  if (source === "TDX") return "TDX 官方站點";
-  if (source === "OpenStreetMap") return "OpenStreetMap";
+  if (source === "TDX") return "官方公車站資料";
+  if (source === "OpenStreetMap") return "地圖地點資料";
   return "已確認地點";
 }
 
@@ -202,89 +184,92 @@ export function JourneyWorkspace() {
     const handleToolResult = (event: Event) => {
       const { toolName, result, input } = (event as CustomEvent<WebMcpResultDetail>)
         .detail;
-
-      if (toolName === "search_places") {
-        const field = input?.field;
-        const query = typeof input?.query === "string" ? input.query : "";
-        const envelope = result as ServiceEnvelope<PlaceSearchResult>;
-        if (
-          (field === "origin" || field === "destination") &&
-          query &&
-          Array.isArray(envelope.data?.candidates)
-        ) {
-          const candidates = envelope.data.candidates;
-          const setInput = field === "origin" ? setOrigin : setDestination;
-          setInput(query);
-          setPlaceSelections((current) => ({ ...current, [field]: undefined }));
-          setPlaceChoices((current) => ({
-            ...current,
-            [field]: { query, result: envelope },
-          }));
-          if (candidates.length === 1) {
-            setPlaceSelections((current) => ({
-              ...current,
-              [field]: { inputValue: query, candidate: candidates[0] },
-            }));
-            setPlaceChoices((current) => ({ ...current, [field]: undefined }));
-          }
-        }
-      }
-
-      if (toolName === "plan_accessible_trip" && input) {
-        setPlaceSelections({});
-        setPlaceChoices({});
-        const originValue =
-          typeof input.originLabel === "string"
-            ? input.originLabel
-            : typeof input.origin === "string"
-              ? input.origin
-              : null;
-        const destinationValue =
-          typeof input.destinationLabel === "string"
-            ? input.destinationLabel
-            : typeof input.destination === "string"
-              ? input.destination
-              : null;
-        if (originValue) setOrigin(originValue);
-        if (destinationValue) setDestination(destinationValue);
-        if (typeof input.minimizeWalking === "boolean") {
-          setMinimizeWalking(input.minimizeWalking);
-        }
-        if (typeof input.minimizeTransfers === "boolean") {
-          setMinimizeTransfers(input.minimizeTransfers);
-        }
-        if (typeof input.stepFree === "boolean") setStepFree(input.stepFree);
-      }
-
-      setResults((current) => {
-        if (toolName === "plan_accessible_trip") {
-          return { ...current, plan: result as ServiceEnvelope<JourneyPlan> };
-        }
-        if (toolName === "get_vehicle_arrivals") {
-          return {
-            ...current,
-            arrivals: result as ServiceEnvelope<VehicleArrivalResult>,
-          };
-        }
-        if (toolName === "get_weather_safety_brief") {
-          return {
-            ...current,
-            weather: result as ServiceEnvelope<WeatherBrief>,
-          };
-        }
-        return current;
+      if (toolName !== "prepare_accessible_journey" || !input) return;
+      const originValue = typeof input.origin === "string" ? input.origin : "";
+      const destinationValue =
+        typeof input.destination === "string" ? input.destination : "";
+      applyPreparation(result as JourneyPreparation, {
+        origin: originValue,
+        destination: destinationValue,
       });
-
+      if (typeof input.minimizeWalking === "boolean") {
+        setMinimizeWalking(input.minimizeWalking);
+      }
+      if (typeof input.minimizeTransfers === "boolean") {
+        setMinimizeTransfers(input.minimizeTransfers);
+      }
+      if (typeof input.stepFree === "boolean") setStepFree(input.stepFree);
       setAnnouncement(
-        toolName === "search_places"
-          ? "Agent 已搜尋地點；若有多個候選，請先確認正確地點。"
-          : `Agent 已完成：${toolName}`,
+        (result as JourneyPreparation).state === "needs-confirmation"
+          ? "智慧助理找到幾個相近地點，請先確認正確的位置。"
+          : "智慧助理已更新這趟行程。",
       );
     };
 
     window.addEventListener(WEBMCP_RESULT_EVENT, handleToolResult);
     return () => window.removeEventListener(WEBMCP_RESULT_EVENT, handleToolResult);
   }, []);
+
+  function applyPreparation(
+    preparation: JourneyPreparation,
+    input: { origin: string; destination: string },
+  ) {
+    const originValue = preparation.origin?.name ?? input.origin;
+    const destinationValue = preparation.destination?.name ?? input.destination;
+    setOrigin(originValue);
+    setDestination(destinationValue);
+    setPlaceSelections({
+      ...(preparation.origin
+        ? {
+            origin: {
+              inputValue: originValue,
+              candidate: preparation.origin,
+            },
+          }
+        : {}),
+      ...(preparation.destination
+        ? {
+            destination: {
+              inputValue: destinationValue,
+              candidate: preparation.destination,
+            },
+          }
+        : {}),
+    });
+    setPlaceChoices({
+      ...(preparation.confirmations.origin
+        ? {
+            origin: {
+              query: preparation.confirmations.origin.data.query,
+              result: preparation.confirmations.origin,
+            },
+          }
+        : {}),
+      ...(preparation.confirmations.destination
+        ? {
+            destination: {
+              query: preparation.confirmations.destination.data.query,
+              result: preparation.confirmations.destination,
+            },
+          }
+        : {}),
+    });
+    setResults({
+      plan: preparation.plan,
+      arrivals: preparation.arrivals,
+      weather: preparation.weather,
+    });
+    const hasInputProblem =
+      preparation.state === "unavailable" && !preparation.plan;
+    setError(hasInputProblem ? preparation.message : "");
+    setInvalidField(
+      !hasInputProblem
+        ? null
+        : preparation.confirmations.origin
+          ? "origin"
+          : "destination",
+    );
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -312,7 +297,7 @@ export function JourneyWorkspace() {
     setOrigin(normalizedOrigin);
     setDestination(normalizedDestination);
     setBusy(true);
-    setAnnouncement("正在搜尋並確認起點與目的地。");
+    setAnnouncement("正在確認地點並整理這趟行程。");
 
     try {
       const existingOrigin =
@@ -323,92 +308,36 @@ export function JourneyWorkspace() {
         placeSelections.destination?.inputValue === normalizedDestination
           ? placeSelections.destination.candidate
           : undefined;
-      const [originSearch, destinationSearch] = await Promise.all([
-        existingOrigin ? null : searchPlaces(normalizedOrigin),
-        existingDestination ? null : searchPlaces(normalizedDestination),
-      ]);
-      const originCandidates = existingOrigin
-        ? [existingOrigin]
-        : (originSearch?.data.candidates ?? []);
-      const destinationCandidates = existingDestination
-        ? [existingDestination]
-        : (destinationSearch?.data.candidates ?? []);
-
-      if (!originCandidates.length || !destinationCandidates.length) {
-        const missing = !originCandidates.length ? "起點" : "目的地";
-        setError(`找不到可規劃的${missing}，請加入行政區、道路或站名後再試。`);
-        setInvalidField(!originCandidates.length ? "origin" : "destination");
-        setAnnouncement(`行程未完成：找不到可確認的${missing}。`);
-        return;
-      }
-
-      const nextChoices: PlaceChoices = {};
-      if (!existingOrigin && originCandidates.length > 1 && originSearch) {
-        nextChoices.origin = { query: normalizedOrigin, result: originSearch };
-      }
-      if (
-        !existingDestination &&
-        destinationCandidates.length > 1 &&
-        destinationSearch
-      ) {
-        nextChoices.destination = {
-          query: normalizedDestination,
-          result: destinationSearch,
-        };
-      }
-      if (nextChoices.origin || nextChoices.destination) {
-        setPlaceChoices(nextChoices);
-        setAnnouncement("找到多個同名或相近地點，請先選擇正確的起點或目的地。");
-        return;
-      }
-
-      const selectedOrigin = existingOrigin ?? originCandidates[0];
-      const selectedDestination =
-        existingDestination ?? destinationCandidates[0];
-      const sameLocation =
-        Math.abs(selectedOrigin.latitude - selectedDestination.latitude) < 0.00001 &&
-        Math.abs(selectedOrigin.longitude - selectedDestination.longitude) < 0.00001;
-      if (sameLocation) {
-        setError("起點和目的地是同一個地點，請確認後再試一次。");
-        setInvalidField("destination");
-        setAnnouncement("行程未完成：起點和目的地相同。");
-        window.requestAnimationFrame(() => destinationRef.current?.focus());
-        return;
-      }
-
-      setPlaceSelections({
-        origin: { inputValue: normalizedOrigin, candidate: selectedOrigin },
-        destination: {
-          inputValue: normalizedDestination,
-          candidate: selectedDestination,
-        },
-      });
-      setPlaceChoices({});
-      setAnnouncement("地點已確認，正在整理行程、到站與天氣資訊。");
-
-      const weatherPromise = getWeatherSafetyBrief(
-        weatherLocationOf(selectedDestination),
-      );
-      const plan = await planAccessibleTrip({
-        origin: coordinateOf(selectedOrigin),
-        destination: coordinateOf(selectedDestination),
-        originLabel: selectedOrigin.name,
-        destinationLabel: selectedDestination.name,
+      const preparation = await prepareAccessibleJourney({
+        origin: normalizedOrigin,
+        destination: normalizedDestination,
+        originCandidateId: existingOrigin?.id,
+        destinationCandidateId: existingDestination?.id,
         preferences: { minimizeWalking, minimizeTransfers, stepFree },
       });
-      const arrivals =
-        plan.status === "unavailable"
-          ? undefined
-          : await getVehicleArrivals({
-              stopName:
-                plan.data.firstTransitLeg?.stopName ??
-                `${selectedOrigin.name}附近站牌`,
-              tripLeg: plan.data.firstTransitLeg,
-            });
-      const weather = await weatherPromise;
-
-      setResults({ plan, arrivals, weather });
-      setAnnouncement("行前資訊已整理完成，請逐項確認資料來源與限制。");
+      applyPreparation(preparation, {
+        origin: normalizedOrigin,
+        destination: normalizedDestination,
+      });
+      if (preparation.state === "needs-confirmation") {
+        setAnnouncement(preparation.message);
+        return;
+      }
+      if (!preparation.plan) {
+        setAnnouncement(`行程未完成：${preparation.message}`);
+        const errorField = preparation.confirmations.origin
+          ? originRef
+          : destinationRef;
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => errorField.current?.focus()),
+        );
+        return;
+      }
+      setAnnouncement(
+        preparation.state === "ready"
+          ? "行前資訊已整理完成，請確認這趟路的重點。"
+          : preparation.message,
+      );
       window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "無法整理行程。";
@@ -443,7 +372,7 @@ export function JourneyWorkspace() {
     const arrivalSpeech = !arrivalResult
       ? []
       : arrivalResult.matchType === "no-transit"
-        ? ["這趟行程沒有大眾運輸路段，不需要查詢到站倒數。"]
+        ? ["這趟行程不需要搭車。"]
         : nextArrival
           ? [
               `${nextArrival.routeName}在${nextArrival.stopName}${
@@ -453,14 +382,21 @@ export function JourneyWorkspace() {
               }${nextArrival.headsign ? `，往${nextArrival.headsign}` : ""}。`,
             ]
           : results.arrivals
-            ? [results.arrivals.limitations[0]]
+            ? ["這一班目前沒有可用的到站時間，出發前請再確認。"]
             : [];
+    const weatherSpeech = results.weather
+      ? [
+          `目的地天氣：${results.weather.data.headline}。`,
+          results.weather.data.advice,
+        ]
+      : [];
     const text = [
       plan.summary,
       `預估 ${plan.estimatedMinutes} 分鐘，步行約 ${plan.walkingMinutes} 分鐘，轉乘 ${plan.transfers} 次。`,
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
       ...arrivalSpeech,
-      ...results.plan.limitations,
+      ...weatherSpeech,
+      "路況與無階梯資訊可能不完整，出發前請再確認現場。",
     ].join(" ");
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-TW";
@@ -640,8 +576,8 @@ export function JourneyWorkspace() {
       </header>
 
       <div className="demo-banner" aria-label="目前資料狀態">
-        <strong>整合路線仍在試行階段</strong>
-        <span>OTP 路線會標示 GTFS／OSM 的資料缺口；請勿把未知狀態當成可安全通行。</span>
+        <strong>路線資訊仍在試用中</strong>
+        <span>出發前請再確認班次、電梯與現場通行情況。</span>
       </div>
 
       <main id="main-content" className="workspace">
@@ -782,7 +718,7 @@ export function JourneyWorkspace() {
                     <span className={`source-kind source-kind--${results.plan.source.kind}`}>
                       {sourceKindText(results.plan.source.kind)}
                     </span>
-                    {results.plan.source.name}
+                    路線與交通資料
                   </p>
                   <p className="summary-title">{results.plan.data.summary}</p>
                   <dl>

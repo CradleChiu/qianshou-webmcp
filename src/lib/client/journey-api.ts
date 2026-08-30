@@ -1,5 +1,7 @@
 import type {
   JourneyPlan,
+  JourneyPreparation,
+  JourneyPreparationRequest,
   JourneyRequest,
   PlaceSearchResult,
   ServiceEnvelope,
@@ -9,19 +11,20 @@ import type {
 } from "@/lib/domain/journey";
 
 type JourneyAction =
+  | { action: "prepare"; request: JourneyPreparationRequest }
   | { action: "plan"; request: JourneyRequest }
   | { action: "places"; query: string }
   | ({ action: "arrivals" } & VehicleArrivalRequest)
   | { action: "weather"; location: string };
 
-async function requestJourney<T>(body: JourneyAction): Promise<ServiceEnvelope<T>> {
+async function requestJourney<T extends object>(body: JourneyAction): Promise<T> {
   const response = await fetch("/api/journey", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   const payload = (await response.json()) as
-    | ServiceEnvelope<T>
+    | T
     | { error?: unknown };
 
   if (!response.ok) {
@@ -32,29 +35,47 @@ async function requestJourney<T>(body: JourneyAction): Promise<ServiceEnvelope<T
     throw new Error(message);
   }
 
-  return payload as ServiceEnvelope<T>;
+  return payload as T;
+}
+
+export function prepareAccessibleJourney(
+  request: JourneyPreparationRequest,
+): Promise<JourneyPreparation> {
+  return requestJourney<JourneyPreparation>({ action: "prepare", request });
 }
 
 export function planAccessibleTrip(
   request: JourneyRequest,
 ): Promise<ServiceEnvelope<JourneyPlan>> {
-  return requestJourney<JourneyPlan>({ action: "plan", request });
+  return requestJourney<ServiceEnvelope<JourneyPlan>>({
+    action: "plan",
+    request,
+  });
 }
 
 export function searchPlaces(
   query: string,
 ): Promise<ServiceEnvelope<PlaceSearchResult>> {
-  return requestJourney<PlaceSearchResult>({ action: "places", query });
+  return requestJourney<ServiceEnvelope<PlaceSearchResult>>({
+    action: "places",
+    query,
+  });
 }
 
 export function getVehicleArrivals(
   request: VehicleArrivalRequest,
 ): Promise<ServiceEnvelope<VehicleArrivalResult>> {
-  return requestJourney<VehicleArrivalResult>({ action: "arrivals", ...request });
+  return requestJourney<ServiceEnvelope<VehicleArrivalResult>>({
+    action: "arrivals",
+    ...request,
+  });
 }
 
 export function getWeatherSafetyBrief(
   location: string,
 ): Promise<ServiceEnvelope<WeatherBrief>> {
-  return requestJourney<WeatherBrief>({ action: "weather", location });
+  return requestJourney<ServiceEnvelope<WeatherBrief>>({
+    action: "weather",
+    location,
+  });
 }

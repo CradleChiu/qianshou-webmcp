@@ -1,4 +1,5 @@
 import type {
+  JourneyPreparationRequest,
   JourneyRequest,
   TransitLegReference,
   TransitMode,
@@ -41,6 +42,38 @@ function readPlanRequest(value: unknown): JourneyRequest {
       typeof value.destinationLabel === "string"
         ? readString(value, "destinationLabel", "目的地名稱")
         : undefined,
+    preferences: {
+      minimizeWalking: value.preferences.minimizeWalking !== false,
+      minimizeTransfers: value.preferences.minimizeTransfers !== false,
+      stepFree: value.preferences.stepFree !== false,
+    },
+  };
+}
+
+function readOptionalCandidateId(
+  value: Record<string, unknown>,
+  key: "originCandidateId" | "destinationCandidateId",
+): string | undefined {
+  const candidateId = value[key];
+  if (candidateId === undefined) return undefined;
+  if (typeof candidateId !== "string" || !candidateId.trim()) {
+    throw new Error("地點選項格式錯誤。");
+  }
+  return candidateId.trim();
+}
+
+function readPreparationRequest(value: unknown): JourneyPreparationRequest {
+  if (!isRecord(value) || !isRecord(value.preferences)) {
+    throw new Error("行程參數格式錯誤。");
+  }
+  return {
+    origin: readString(value, "origin", "起點"),
+    destination: readString(value, "destination", "目的地"),
+    originCandidateId: readOptionalCandidateId(value, "originCandidateId"),
+    destinationCandidateId: readOptionalCandidateId(
+      value,
+      "destinationCandidateId",
+    ),
     preferences: {
       minimizeWalking: value.preferences.minimizeWalking !== false,
       minimizeTransfers: value.preferences.minimizeTransfers !== false,
@@ -115,6 +148,13 @@ export async function POST(request: Request) {
     if (body.action === "plan") {
       return Response.json(
         await journeyServices.planAccessibleTrip(readPlanRequest(body.request)),
+      );
+    }
+    if (body.action === "prepare") {
+      return Response.json(
+        await journeyServices.prepareAccessibleJourney(
+          readPreparationRequest(body.request),
+        ),
       );
     }
     if (body.action === "places") {

@@ -493,7 +493,7 @@ export class OtpClient {
           : "沿途階梯、坡度、電梯與人行環境尚未逐段確認。",
       ],
       data: {
-        summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：OTP 大眾運輸方案`,
+        summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
         estimatedMinutes: minutes(duration),
         walkingMinutes: Math.ceil(walkTime / 60),
         transfers: Math.max(0, Math.round(transfers)),

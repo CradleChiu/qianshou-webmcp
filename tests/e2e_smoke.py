@@ -134,68 +134,41 @@ def run_desktop(browser):
 
     assert page.get_by_role("heading", name="你想從哪裡，到哪裡？").count() == 1
     assert page.get_by_text("可直接使用，也支援智慧助理", exact=True).count() == 1
-    assert page.get_by_text("整合路線仍在試行階段", exact=True).is_visible()
+    assert page.get_by_text("路線資訊仍在試用中", exact=True).is_visible()
     assert page.locator("h1").count() == 1
     assert_no_duplicate_ids(page)
 
     tool_names = page.evaluate("() => Object.keys(window.__webmcpTools).sort()")
-    assert tool_names == [
-        "get_vehicle_arrivals",
-        "get_weather_safety_brief",
-        "plan_accessible_trip",
-        "search_places",
-    ]
+    assert tool_names == ["prepare_accessible_journey"]
     assert page.evaluate(
-        "() => Boolean(window.__webmcpTools.get_vehicle_arrivals.inputSchema.properties.tripLeg)"
+        "() => Boolean(window.__webmcpTools.prepare_accessible_journey.inputSchema.properties.originCandidateId)"
     )
     assert page.evaluate(
-        "() => Boolean(window.__webmcpTools.plan_accessible_trip.inputSchema.properties.originLabel)"
+        "() => window.__webmcpTools.prepare_accessible_journey.description.includes('natural place names')"
     )
 
-    place_search = page.evaluate(
+    journey = page.evaluate(
         """
-        () => window.__webmcpTools.search_places.execute({
-          query: '台北車站',
-          field: 'origin'
+        () => window.__webmcpTools.prepare_accessible_journey.execute({
+          origin: '台北車站',
+          destination: '台大醫院',
+          minimizeWalking: true,
+          minimizeTransfers: true,
+          stepFree: true
         })
         """
     )
-    assert place_search["data"]["candidates"][0]["name"] == "臺北車站"
+    assert journey["state"] == "ready"
+    assert journey["origin"]["name"] == "臺北車站"
+    assert journey["destination"]["name"] == "臺大醫院"
     assert page.get_by_text("已確認：臺北車站", exact=True).is_visible()
-
-    page.evaluate(
-        """
-        () => window.__webmcpTools.get_weather_safety_brief.execute({
-          location: '台大醫院'
-        })
-        """
-    )
-    page.get_by_role("heading", name="查到的資訊").wait_for()
+    page.get_by_role("heading", name="這趟路的重點").wait_for()
     assert page.get_by_text("目的地天氣").is_visible()
     assert page.locator(".brief-card--weather").get_by_text(
         "3 小時分段", exact=False
     ).is_visible()
     assert page.get_by_text("今明 36 小時", exact=False).count() == 0
-
-    page.evaluate(
-        """
-        async () => {
-          const plan = await window.__webmcpTools.plan_accessible_trip.execute({
-            origin: '台北車站',
-            destination: '台大醫院',
-            minimizeWalking: true,
-            minimizeTransfers: true,
-            stepFree: true
-          });
-          return window.__webmcpTools.get_vehicle_arrivals.execute({
-            stopName: plan.data.firstTransitLeg?.stopName ?? '台北車站附近站牌',
-            tripLeg: plan.data.firstTransitLeg
-          });
-        }
-        """
-    )
-    page.get_by_role("heading", name="這趟路的重點").wait_for()
-    assert page.get_by_text("從臺北車站到臺大醫院：OTP 大眾運輸方案").count() == 1
+    assert page.get_by_text("從臺北車站到臺大醫院：建議行程").count() == 1
     assert page.locator(".brief-card .card-label").filter(
         has_text="這趟交通"
     ).is_visible()
@@ -203,35 +176,16 @@ def run_desktop(browser):
     assert page.get_by_text("系統沒有顯示與這趟行程無關的附近公車。", exact=True).count() == 1
     assert page.get_by_text("14・", exact=False).count() == 0
     assert page.locator(".journey-summary .source-kind").inner_text() == "整合資料"
+    primary_summary = page.locator(".journey-summary").inner_text()
+    assert "OTP" not in primary_summary
+    assert "GTFS" not in primary_summary
+    assert "OpenTripPlanner" not in primary_summary
     assert page.get_by_text(
         "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
         exact=True,
-    ).count() == 1
+    ).is_hidden()
 
     page.screenshot(path=str(ARTIFACTS / "desktop-after-agent.png"), full_page=True)
-
-    coordinate_plan = page.evaluate(
-        """
-        () => window.__webmcpTools.plan_accessible_trip.execute({
-          origin: '25.045000,121.515000',
-          destination: '25.040000,121.517000',
-          minimizeWalking: true,
-          minimizeTransfers: true,
-          stepFree: true
-        })
-        """
-    )
-    assert coordinate_plan["data"]["summary"] == (
-        "從你指定的起點到你指定的目的地：OTP 大眾運輸方案"
-    )
-    assert "25.045000" not in str(coordinate_plan["data"]["steps"])
-    assert page.get_by_text(
-        "從你指定的起點到你指定的目的地：OTP 大眾運輸方案",
-        exact=True,
-    ).is_visible()
-    coordinate_steps = page.locator(".journey-steps").inner_text()
-    assert "你指定的起點" in coordinate_steps
-    assert "25.045000" not in coordinate_steps
 
     assert bad_responses == [], f"bad responses: {bad_responses}"
     assert console_errors == [], f"console errors: {console_errors}"
@@ -243,49 +197,115 @@ def run_place_disambiguation(browser, viewport, artifact_label):
 
     def route_journey(route):
         body = route.request.post_data_json or {}
-        if body.get("action") != "places" or body.get("query") != "中正路":
+        if body.get("action") != "prepare" or body.get("request", {}).get("origin") != "中正路":
             route.continue_()
+            return
+        selected_id = body.get("request", {}).get("originCandidateId")
+        candidates = [
+            {
+                "id": "osm:test-1",
+                "name": "中正路",
+                "description": "臺北市中正區中正路一段 100 號",
+                "latitude": 25.043,
+                "longitude": 121.516,
+                "kind": "address",
+                "source": "OpenStreetMap",
+                "city": "Taipei",
+                "stopUid": None,
+            },
+            {
+                "id": "osm:test-2",
+                "name": "中正路",
+                "description": "新北市板橋區中正路 200 號",
+                "latitude": 25.018,
+                "longitude": 121.456,
+                "kind": "address",
+                "source": "OpenStreetMap",
+                "city": "NewTaipei",
+                "stopUid": None,
+            },
+        ]
+        destination = {
+            "id": "known:ntuh",
+            "name": "臺大醫院",
+            "description": "臺北市中正區中山南路 7 號",
+            "latitude": 25.041399,
+            "longitude": 121.51602,
+            "kind": "landmark",
+            "source": "known",
+            "city": "Taipei",
+            "stopUid": None,
+        }
+        if selected_id == "osm:test-1":
+            envelope_source = {
+                "name": "測試資料",
+                "observedAt": None,
+                "retrievedAt": "2026-08-30T00:00:00.000Z",
+                "kind": "integrated",
+                "freshness": "unknown",
+            }
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                json={
+                    "state": "ready",
+                    "message": "行前資訊已整理完成。",
+                    "origin": candidates[0],
+                    "destination": destination,
+                    "confirmations": {},
+                    "plan": {
+                        "status": "partial",
+                        "generatedAt": "2026-08-30T00:00:00.000Z",
+                        "source": envelope_source,
+                        "limitations": ["出發前請再確認現場。"],
+                        "data": {
+                            "summary": "從中正路到臺大醫院：建議行程",
+                            "estimatedMinutes": 12,
+                            "walkingMinutes": 12,
+                            "transfers": 0,
+                            "steps": [{
+                                "label": "步行到臺大醫院",
+                                "detail": "從中正路出發，步行約 12 分鐘到臺大醫院。",
+                            }],
+                            "firstTransitLeg": None,
+                        },
+                    },
+                    "arrivals": {
+                        "status": "ok",
+                        "generatedAt": "2026-08-30T00:00:00.000Z",
+                        "source": envelope_source,
+                        "limitations": ["這趟行程不需要搭車。"],
+                        "data": {
+                            "matchType": "no-transit",
+                            "requestedLeg": None,
+                            "arrivals": [],
+                        },
+                    },
+                },
+            )
             return
         route.fulfill(
             status=200,
             content_type="application/json",
             json={
-                "status": "ok",
-                "generatedAt": "2026-08-30T00:00:00.000Z",
-                "source": {
-                    "name": "TDX 站點＋OpenStreetMap Nominatim",
-                    "observedAt": None,
-                    "retrievedAt": "2026-08-30T00:00:00.000Z",
-                    "kind": "integrated",
-                    "freshness": "unknown",
-                },
-                "limitations": ["同名地點可能位於不同地址；規劃前請確認候選地點。"],
-                "data": {
-                    "query": "中正路",
-                    "candidates": [
-                        {
-                            "id": "osm:test-1",
-                            "name": "中正路",
-                            "description": "臺北市中正區中正路一段 100 號",
-                            "latitude": 25.043,
-                            "longitude": 121.516,
-                            "kind": "address",
-                            "source": "OpenStreetMap",
-                            "city": "Taipei",
-                            "stopUid": None,
+                "state": "needs-confirmation",
+                "message": "找到多個同名或相近地點，請先確認正確的起點或目的地。",
+                "origin": None,
+                "destination": destination,
+                "confirmations": {
+                    "origin": {
+                        "status": "ok",
+                        "generatedAt": "2026-08-30T00:00:00.000Z",
+                        "source": {
+                            "name": "地圖地點資料",
+                            "observedAt": None,
+                            "retrievedAt": "2026-08-30T00:00:00.000Z",
+                            "kind": "integrated",
+                            "freshness": "unknown",
                         },
-                        {
-                            "id": "osm:test-2",
-                            "name": "中正路",
-                            "description": "新北市板橋區中正路 200 號",
-                            "latitude": 25.018,
-                            "longitude": 121.456,
-                            "kind": "address",
-                            "source": "OpenStreetMap",
-                            "city": "NewTaipei",
-                            "stopUid": None,
-                        },
-                    ],
+                        "limitations": ["同名地點可能位於不同地址；規劃前請確認候選地點。"],
+                        "data": {"query": "中正路", "candidates": candidates},
+                    }
                 },
             },
         )
@@ -329,7 +349,7 @@ def run_mobile(browser):
     page.wait_for_load_state("networkidle")
 
     assert page.get_by_text("可直接使用", exact=True).count() == 1
-    assert page.get_by_text("整合路線仍在試行階段", exact=True).is_visible()
+    assert page.get_by_text("路線資訊仍在試用中", exact=True).is_visible()
 
     page.keyboard.press("Tab")
     assert page.locator(":focus").inner_text() == "跳到主要內容"
@@ -371,6 +391,12 @@ def run_speech_regression(browser):
     page.get_by_role("button", name="朗讀目前行程").click()
     page.wait_for_function("window.__speechTest.speaks === 1")
     assert page.evaluate("window.__speechTest.cancels") == 0
+    spoken_text = page.evaluate("window.__speechTest.active.text")
+    assert "目的地天氣" in spoken_text
+    assert "OpenTripPlanner" not in spoken_text
+    assert "GTFS" not in spoken_text
+    assert "OTP" not in spoken_text
+    assert "TDX" not in spoken_text
     assert page.get_by_role("button", name="暫停朗讀").is_enabled()
     assert page.get_by_role("button", name="停止朗讀").is_enabled()
 

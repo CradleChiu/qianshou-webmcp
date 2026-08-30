@@ -9,7 +9,7 @@
 - 視障優先，也服務高齡者。
 - Voice-first，不是 voice-only。
 - 未知就說未知，不把資料缺口包裝成安全保證。
-- 人類 UI 與 WebMCP Agent tools 共用同一個 server-side journey API。
+- 人類 UI 與 WebMCP Agent 共用同一條 server-side 行程準備流程。
 - 產品價值與使用者安全高於競賽需求。
 
 完整產品決策見 [`docs/product-foundation.md`](docs/product-foundation.md)。
@@ -20,7 +20,8 @@
 - Next.js、React、TypeScript 應用骨架。
 - 起點、目的地與少步行／少轉乘／無階梯偏好。
 - 可朗讀的行程結果，以及逐項呈現官方／示範、資料時間、取得時間、新鮮度與限制。
-- `search_places`、`plan_accessible_trip`、`get_vehicle_arrivals`、`get_weather_safety_brief` 四個 WebMCP imperative tools；Agent 搜到多個同名地點時必須交由使用者確認。
+- 單一 `prepare_accessible_journey` WebMCP tool：使用者只需用自然語言說明起點、目的地與偏好，系統會自行完成地點解析、路線、精確到站與短時天氣；同名地點一定先交由使用者確認，不要求使用者知道工具名稱或候選 ID。
+- 主要畫面與朗讀只使用日常行程語言；OTP、GTFS、TDX 等實作與來源細節保留在可展開的「資料來源與目前限制」。
 - WebMCP 不可用時保留完整手動操作。
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。
 - TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站 adapter（資料快取 30 秒）。OTP 公車路段會以 `StopUID + RouteUID + Direction` 精確綁定 TDX 到站；純步行或非公車路段不會混入附近公車。
@@ -29,7 +30,7 @@
 - OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference。
 - TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。
 - 上游 timeout、錯誤與 unavailable 狀態；官方模式失敗時不以示範資料冒充。
-- Domain／adapter unit tests 與桌面／手機 Playwright smoke tests。
+- Domain／adapter unit tests，以及桌面／手機／鍵盤／精簡朗讀／單一 WebMCP 流程的 Playwright smoke tests。
 
 ## 本機執行
 

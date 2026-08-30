@@ -105,6 +105,27 @@ export type ServiceEnvelope<T> = {
   data: T;
 };
 
+export type JourneyPreparationRequest = {
+  origin: string;
+  destination: string;
+  originCandidateId?: string;
+  destinationCandidateId?: string;
+  preferences: JourneyPreferences;
+};
+
+export type JourneyPreparation = {
+  state: "needs-confirmation" | "ready" | "unavailable";
+  message: string;
+  origin: PlaceCandidate | null;
+  destination: PlaceCandidate | null;
+  confirmations: Partial<
+    Record<"origin" | "destination", ServiceEnvelope<PlaceSearchResult>>
+  >;
+  plan?: ServiceEnvelope<JourneyPlan>;
+  arrivals?: ServiceEnvelope<VehicleArrivalResult>;
+  weather?: ServiceEnvelope<WeatherBrief>;
+};
+
 const developmentSource = (): InformationSource => {
   const retrievedAt = new Date().toISOString();
 

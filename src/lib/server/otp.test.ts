@@ -115,7 +115,7 @@ describe("OTP adapter", () => {
     expect(result.data.walkingMinutes).toBe(4);
     expect(result.data.transfers).toBe(0);
     expect(result.data.summary).toBe(
-      "從臺北車站到臺大醫院：OTP 大眾運輸方案",
+      "從臺北車站到臺大醫院：建議行程",
     );
     expect(result.data.steps[0]).toMatchObject({
       label: "先走到捷運站「捷運入口」",
@@ -277,7 +277,7 @@ describe("OTP adapter", () => {
     );
 
     expect(result.data.summary).toBe(
-      "從你指定的起點到你指定的目的地：OTP 大眾運輸方案",
+      "從你指定的起點到你指定的目的地：建議行程",
     );
     expect(result.data.steps[0]).toEqual({
       label: "先走到公車站「馬明潭（再興中學）」",
