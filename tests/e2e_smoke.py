@@ -161,6 +161,9 @@ def run_desktop(browser):
     assert journey["state"] == "ready"
     assert journey["origin"]["name"] == "臺北車站"
     assert journey["destination"]["name"] == "臺大醫院"
+    assert journey["plan"]["data"]["firstTransitLeg"] is not None
+    assert journey["plan"]["data"]["firstTransitLeg"]["mode"] == "SUBWAY"
+    assert journey["arrivals"]["data"]["matchType"] == "unsupported-mode"
     assert page.get_by_text("已確認：臺北車站", exact=True).is_visible()
     page.get_by_role("heading", name="這趟路的重點").wait_for()
     assert page.get_by_text("目的地天氣").is_visible()
@@ -170,10 +173,11 @@ def run_desktop(browser):
     assert page.get_by_text("今明 36 小時", exact=False).count() == 0
     assert page.get_by_text("從臺北車站到臺大醫院：建議行程").count() == 1
     assert page.locator(".brief-card .card-label").filter(
-        has_text="這趟交通"
+        has_text="這趟到站"
     ).is_visible()
-    assert page.get_by_role("heading", name="這趟不需搭車").is_visible()
-    assert page.get_by_text("系統沒有顯示與這趟行程無關的附近公車。", exact=True).count() == 1
+    assert page.locator(".brief-card h3").filter(
+        has_text="暫無進站倒數"
+    ).is_visible()
     assert page.get_by_text("14・", exact=False).count() == 0
     assert page.locator(".journey-summary .source-kind").inner_text() == "整合資料"
     primary_summary = page.locator(".journey-summary").inner_text()
@@ -367,9 +371,11 @@ def run_mobile(browser):
     assert page.get_by_role("button", name="暫停朗讀").is_disabled()
     assert page.get_by_role("button", name="停止朗讀").is_disabled()
     assert page.locator(".brief-card .card-label").filter(
-        has_text="這趟交通"
+        has_text="這趟到站"
     ).is_visible()
-    assert page.get_by_role("heading", name="這趟不需搭車").is_visible()
+    assert page.locator(".brief-card h3").filter(
+        has_text="暫無進站倒數"
+    ).is_visible()
     assert page.get_by_text("目的地天氣").is_visible()
     assert page.locator(".brief-card--weather").get_by_text(
         "3 小時分段", exact=False

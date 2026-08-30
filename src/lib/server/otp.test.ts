@@ -148,6 +148,35 @@ describe("OTP adapter", () => {
     });
   });
 
+  it("少走路時不會固定採用第一個純步行候選", async () => {
+    const body = responseBody();
+    const walkingOnly = structuredClone(body.data.planConnection.edges[0]);
+    const directWalk = structuredClone(walkingOnly.node.legs[0]);
+    directWalk.duration = 780;
+    directWalk.distance = 1_000;
+    directWalk.to.name = "Destination";
+    walkingOnly.node.duration = 780;
+    walkingOnly.node.walkTime = 780;
+    walkingOnly.node.walkDistance = 1_000;
+    walkingOnly.node.legs = [directWalk];
+    body.data.planConnection.edges.unshift(walkingOnly);
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(result.data.walkingMinutes).toBe(4);
+    expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
+    expect(result.data.steps.map((step) => step.label)).toContain("搭乘R");
+  });
+
   it("把第一段公車轉成可供 TDX 精確查詢的識別資料", async () => {
     const body = responseBody();
     const itinerary = body.data.planConnection.edges[0].node;

@@ -357,7 +357,38 @@ function locationInput(place: ResolvedOtpPlace) {
   };
 }
 
-function parseItinerary(response: OtpGraphqlResponse): OtpItinerary {
+function itineraryMetric(
+  itinerary: OtpItinerary,
+  key: "duration" | "walkTime" | "numberOfTransfers",
+): number {
+  return readNumber(itinerary[key]) ?? Number.POSITIVE_INFINITY;
+}
+
+function compareItineraries(
+  left: OtpItinerary,
+  right: OtpItinerary,
+  preferences: JourneyPreferences,
+): number {
+  const metrics: Array<"duration" | "walkTime" | "numberOfTransfers"> = [
+    ...(preferences.minimizeWalking ? (["walkTime"] as const) : []),
+    ...(preferences.minimizeTransfers
+      ? (["numberOfTransfers"] as const)
+      : []),
+    "duration",
+  ];
+
+  for (const metric of metrics) {
+    const leftValue = itineraryMetric(left, metric);
+    const rightValue = itineraryMetric(right, metric);
+    if (leftValue !== rightValue) return leftValue - rightValue;
+  }
+  return 0;
+}
+
+function parseItinerary(
+  response: OtpGraphqlResponse,
+  preferences: JourneyPreferences,
+): OtpItinerary {
   if (response.errors?.length) {
     throw new ExternalServiceError(
       "OpenTripPlanner",
@@ -375,17 +406,19 @@ function parseItinerary(response: OtpGraphqlResponse): OtpItinerary {
     );
   }
 
-  const itinerary = edges
+  const itineraries = edges
     ?.map((edge) => edge?.node)
-    .find((node): node is OtpItinerary => Boolean(node));
-  if (!itinerary) {
+    .filter((node): node is OtpItinerary => Boolean(node));
+  if (!itineraries.length) {
     throw new ExternalServiceError(
       "OpenTripPlanner",
       "no-results",
       "OpenTripPlanner 目前沒有找到可用路線；可能已超過末班車，請調整起訖點或稍後再試。",
     );
   }
-  return itinerary;
+  return itineraries.sort((left, right) =>
+    compareItineraries(left, right, preferences),
+  )[0];
 }
 
 export class OtpClient {
@@ -445,7 +478,7 @@ export class OtpClient {
       this.config.timeoutMs,
     );
 
-    const itinerary = parseItinerary(data);
+    const itinerary = parseItinerary(data, request.preferences);
     const duration = readNumber(itinerary.duration);
     const walkTime = readNumber(itinerary.walkTime);
     const transfers = readNumber(itinerary.numberOfTransfers);
