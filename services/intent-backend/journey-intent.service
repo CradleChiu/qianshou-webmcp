@@ -1,0 +1,24 @@
+[Unit]
+Description=Journey natural-language intent service (Codex CLI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/openai_webmcp/current/services/intent-backend
+ExecStart=/usr/bin/env node server.mjs
+Environment=NODE_ENV=production
+Environment=INTENT_HOST=127.0.0.1
+Environment=INTENT_PORT=8020
+Environment=INTENT_MAX_CONCURRENT=2
+Environment=CODEX_TIMEOUT_MS=60000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.codex
+
+[Install]
+WantedBy=default.target

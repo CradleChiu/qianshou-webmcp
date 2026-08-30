@@ -32,12 +32,13 @@ body {
   line-height: 1.7;
 }
 
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button, summary, input[type="checkbox"] { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
 button:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 summary:focus-visible,
 a:focus-visible,
 [tabindex="-1"]:focus-visible {
@@ -211,7 +212,8 @@ a:focus-visible,
   font-weight: 900;
 }
 
-.field-group input {
+.field-group input,
+.field-group textarea {
   width: 100%;
   min-height: 3.5rem;
   padding: 0.7rem 0.9rem;
@@ -222,9 +224,36 @@ a:focus-visible,
   font-size: 1.1rem;
 }
 
+.field-group textarea {
+  min-height: 8.5rem;
+  line-height: 1.65;
+  resize: vertical;
+}
+
 .field-hint { margin: 0.35rem 0 0; color: var(--asphalt-soft); font-size: 0.95rem; }
 
 .place-confirmation { margin-top: 0.75rem; }
+
+.intent-understood {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-left: 6px solid var(--tactile);
+  background: #fff9e5;
+}
+
+.intent-understood p { margin: 0; }
+
+.intent-understood-label {
+  color: var(--harbor);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.intent-understood-label + p {
+  margin-top: 0.2rem;
+  font-weight: 800;
+}
 
 .selected-place {
   display: grid;

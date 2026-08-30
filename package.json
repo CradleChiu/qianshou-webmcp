@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run && node --test services/intent-backend/*.test.mjs",
+    "test:intent-backend": "node --test services/intent-backend/*.test.mjs"
   },
   "engines": {
     "node": ">=22"

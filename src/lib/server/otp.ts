@@ -65,9 +65,6 @@ type OtpGraphqlResponse = {
     planConnection?: {
       edges?: Array<{ node?: OtpItinerary | null } | null> | null;
     } | null;
-    balancedPlanConnection?: {
-      edges?: Array<{ node?: OtpItinerary | null } | null> | null;
-    } | null;
   } | null;
   errors?: Array<{ message?: unknown }>;
 };
@@ -82,7 +79,6 @@ export const OTP_PLAN_QUERY = `
     $dateTime: PlanDateTimeInput!
     $modes: PlanModesInput!
     $preferences: PlanPreferencesInput!
-    $balancedPreferences: PlanPreferencesInput!
     $first: Int!
   ) {
     planConnection(
@@ -91,37 +87,6 @@ export const OTP_PLAN_QUERY = `
       dateTime: $dateTime
       modes: $modes
       preferences: $preferences
-      first: $first
-    ) {
-      edges {
-        node {
-          start
-          end
-          duration
-          walkTime
-          walkDistance
-          numberOfTransfers
-          accessibilityScore
-          legs {
-            mode
-            transitLeg
-            duration
-            distance
-            headsign
-            from { name stop { gtfsId name } }
-            to { name stop { gtfsId name } }
-            route { gtfsId shortName longName }
-            trip { gtfsId directionId }
-          }
-        }
-      }
-    }
-    balancedPlanConnection: planConnection(
-      origin: $origin
-      destination: $destination
-      dateTime: $dateTime
-      modes: $modes
-      preferences: $balancedPreferences
       first: $first
     ) {
       edges {
@@ -491,11 +456,7 @@ function parseItineraries(
     );
   }
 
-  const balancedEdges = response.data?.balancedPlanConnection?.edges;
-  const itineraries = [
-    ...edges,
-    ...(Array.isArray(balancedEdges) ? balancedEdges : []),
-  ]
+  const itineraries = edges
     .map((edge) => edge?.node)
     .filter((node): node is OtpItinerary => Boolean(node));
   if (!itineraries.length) {
@@ -743,7 +704,6 @@ export class OtpClient {
               },
             },
             preferences: requestPreferences(request.preferences),
-            balancedPreferences: {},
             first: 5,
           },
         }),

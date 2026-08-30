@@ -2,8 +2,10 @@ services:
   otp:
     image: opentripplanner/opentripplanner:2.9.0
     command: ["--load", "--serve"]
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms1g -Xmx3g"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - type: bind
         source: ./data
@@ -15,5 +17,9 @@ services:
       - type: bind
         source: ./router-config.json
         target: /var/opentripplanner/router-config.json
+        read_only: true
+      - type: bind
+        source: ./otp-config.json
+        target: /var/opentripplanner/otp-config.json
         read_only: true
     restart: unless-stopped

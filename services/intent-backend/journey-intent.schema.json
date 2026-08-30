@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "origin": {
+      "type": ["string", "null"]
+    },
+    "destination": {
+      "type": ["string", "null"]
+    },
+    "destinationReference": {
+      "type": ["string", "null"],
+      "enum": ["origin", null]
+    },
+    "needsClarification": {
+      "type": "boolean"
+    },
+    "clarificationTarget": {
+      "type": ["string", "null"],
+      "enum": ["origin", "destination", "both", null]
+    },
+    "clarificationQuestion": {
+      "type": ["string", "null"]
+    },
+    "understoodIntent": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    }
+  },
+  "required": [
+    "origin",
+    "destination",
+    "destinationReference",
+    "needsClarification",
+    "clarificationTarget",
+    "clarificationQuestion",
+    "understoodIntent",
+    "confidence"
+  ]
+}

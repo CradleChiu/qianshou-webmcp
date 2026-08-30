@@ -22,32 +22,7 @@
     }
   },
   "transit": {
-    "transferCacheRequests": [
-      {
-        "modes": "WALK"
-      },
-      {
-        "modes": "WALK",
-        "walk": {
-          "reluctance": 4
-        }
-      },
-      {
-        "modes": "WALK",
-        "wheelchairAccessibility": {
-          "enabled": true
-        }
-      },
-      {
-        "modes": "WALK",
-        "walk": {
-          "reluctance": 4
-        },
-        "wheelchairAccessibility": {
-          "enabled": true
-        }
-      }
-    ]
+    "transferCacheRequests": []
   },
   "updaters": []
 }

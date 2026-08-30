@@ -1,0 +1,26 @@
+[Unit]
+Description=Qianshou journey assistance web service
+After=network-online.target journey-intent.service
+Wants=network-online.target
+Requires=journey-intent.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/openai_webmcp/current
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3200
+Environment=NEXT_PUBLIC_BASE_PATH=/journey
+Environment=INTENT_SERVICE_URL=http://127.0.0.1:8020/v1/interpret
+Environment=INTENT_SERVICE_TIMEOUT_MS=65000
+EnvironmentFile=-%h/apps/openai_webmcp/shared/web.env
+ExecStart=/usr/bin/env corepack pnpm start --hostname 127.0.0.1 --port 3200
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

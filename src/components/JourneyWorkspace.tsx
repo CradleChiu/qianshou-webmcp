@@ -3,9 +3,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   getVehicleArrivals as fetchVehicleArrivals,
+  interpretJourneyIntent,
   prepareAccessibleJourney,
 } from "@/lib/client/journey-api";
 import { DEFAULT_JOURNEY_PREFERENCES } from "@/lib/domain/journey";
+import { journeyDestinationQuery } from "@/lib/domain/intent";
 import type {
   InformationSource,
   JourneyAlternative,
@@ -25,8 +27,13 @@ import {
 
 type ToolStatus = "checking" | "available" | "unavailable" | "failed";
 type SpeechStatus = "idle" | "speaking" | "paused";
-type InvalidField = "origin" | "destination" | null;
 type PlaceField = "origin" | "destination";
+
+type IntentContext = {
+  origin: string | null;
+  destination: string | null;
+  destinationReference: "origin" | null;
+};
 
 type PlaceSelection = {
   inputValue: string;
@@ -170,8 +177,19 @@ function selectAlternativePlan(
 }
 
 export function JourneyWorkspace() {
-  const [origin, setOrigin] = useState("台北車站");
-  const [destination, setDestination] = useState("台大醫院");
+  const [journeyRequest, setJourneyRequest] = useState("");
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [intentContext, setIntentContext] = useState<IntentContext>({
+    origin: null,
+    destination: null,
+    destinationReference: null,
+  });
+  const [intentSummary, setIntentSummary] = useState("");
+  const [clarificationQuestion, setClarificationQuestion] = useState<
+    string | null
+  >(null);
+  const [intentDirty, setIntentDirty] = useState(true);
   const [toolStatus, setToolStatus] = useState<ToolStatus>("checking");
   const [results, setResults] = useState<Results>({});
   const [busy, setBusy] = useState(false);
@@ -180,12 +198,11 @@ export function JourneyWorkspace() {
   );
   const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("idle");
   const [error, setError] = useState("");
-  const [invalidField, setInvalidField] = useState<InvalidField>(null);
+  const [requestInvalid, setRequestInvalid] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [placeSelections, setPlaceSelections] = useState<PlaceSelections>({});
   const [placeChoices, setPlaceChoices] = useState<PlaceChoices>({});
-  const originRef = useRef<HTMLInputElement>(null);
-  const destinationRef = useRef<HTMLInputElement>(null);
+  const journeyRequestRef = useRef<HTMLTextAreaElement>(null);
   const firstPlaceChoiceRef = useRef<HTMLButtonElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -304,87 +321,131 @@ export function JourneyWorkspace() {
     const hasInputProblem =
       preparation.state === "unavailable" && !preparation.plan;
     setError(hasInputProblem ? preparation.message : "");
-    setInvalidField(
-      !hasInputProblem
-        ? null
-        : preparation.confirmations.origin
-          ? "origin"
-          : "destination",
+    setIntentContext({
+      origin: originValue,
+      destination: destinationValue,
+      destinationReference: null,
+    });
+  }
+
+  async function prepareResolvedJourney(
+    normalizedOrigin: string,
+    normalizedDestination: string,
+  ) {
+    const existingOrigin =
+      placeSelections.origin?.inputValue === normalizedOrigin
+        ? placeSelections.origin.candidate
+        : undefined;
+    const existingDestination =
+      placeSelections.destination?.inputValue === normalizedDestination
+        ? placeSelections.destination.candidate
+        : undefined;
+    const preparation = await prepareAccessibleJourney({
+      origin: normalizedOrigin,
+      destination: normalizedDestination,
+      originCandidateId: existingOrigin?.id,
+      destinationCandidateId: existingDestination?.id,
+      preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
+    });
+    applyPreparation(preparation, {
+      origin: normalizedOrigin,
+      destination: normalizedDestination,
+    });
+    if (preparation.state === "needs-confirmation") {
+      setAnnouncement(preparation.message);
+      return;
+    }
+    if (!preparation.plan) {
+      setAnnouncement(`行程未完成：${preparation.message}`);
+      window.requestAnimationFrame(() => journeyRequestRef.current?.focus());
+      return;
+    }
+    setAnnouncement(
+      preparation.state === "ready"
+        ? "行前資訊已整理完成，請確認這趟路的重點。"
+        : preparation.message,
     );
+    window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    setInvalidField(null);
-    const normalizedOrigin = origin.trim();
-    const normalizedDestination = destination.trim();
+    setRequestInvalid(false);
+    const utterance = journeyRequest.trim();
+    const confirmedOrigin = placeSelections.origin?.candidate;
+    const confirmedDestination = placeSelections.destination?.candidate;
+    const canReuseConfirmedPlaces =
+      !intentDirty &&
+      !placeChoices.origin &&
+      !placeChoices.destination &&
+      Boolean(confirmedOrigin && confirmedDestination);
 
-    if (normalizedOrigin.length < 2) {
-      setError("起點至少需要兩個字，請確認後再試一次。");
-      setInvalidField("origin");
-      setAnnouncement("行程未完成：起點至少需要兩個字。");
-      window.requestAnimationFrame(() => originRef.current?.focus());
+    if (!canReuseConfirmedPlaces && utterance.length < 2) {
+      setError("請說出你想去哪裡，或你現在附近有什麼地標。");
+      setRequestInvalid(true);
+      setAnnouncement("還需要多一點行程資訊。");
+      window.requestAnimationFrame(() => journeyRequestRef.current?.focus());
       return;
     }
 
-    if (normalizedDestination.length < 2) {
-      setError("目的地至少需要兩個字，請確認後再試一次。");
-      setInvalidField("destination");
-      setAnnouncement("行程未完成：目的地至少需要兩個字。");
-      window.requestAnimationFrame(() => destinationRef.current?.focus());
-      return;
-    }
-
-    setOrigin(normalizedOrigin);
-    setDestination(normalizedDestination);
     setBusy(true);
-    setAnnouncement("正在確認地點並整理這趟行程。");
+    setAnnouncement(
+      canReuseConfirmedPlaces
+        ? "正在用你確認的地點整理行程。"
+        : "正在理解你的需求。",
+    );
 
     try {
-      const existingOrigin =
-        placeSelections.origin?.inputValue === normalizedOrigin
-          ? placeSelections.origin.candidate
-          : undefined;
-      const existingDestination =
-        placeSelections.destination?.inputValue === normalizedDestination
-          ? placeSelections.destination.candidate
-          : undefined;
-      const preparation = await prepareAccessibleJourney({
-        origin: normalizedOrigin,
-        destination: normalizedDestination,
-        originCandidateId: existingOrigin?.id,
-        destinationCandidateId: existingDestination?.id,
-        preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
-      });
-      applyPreparation(preparation, {
-        origin: normalizedOrigin,
-        destination: normalizedDestination,
-      });
-      if (preparation.state === "needs-confirmation") {
-        setAnnouncement(preparation.message);
-        return;
-      }
-      if (!preparation.plan) {
-        setAnnouncement(`行程未完成：${preparation.message}`);
-        const errorField = preparation.confirmations.origin
-          ? originRef
-          : destinationRef;
-        window.requestAnimationFrame(() =>
-          window.requestAnimationFrame(() => errorField.current?.focus()),
+      if (canReuseConfirmedPlaces && confirmedOrigin && confirmedDestination) {
+        await prepareResolvedJourney(
+          confirmedOrigin.name,
+          confirmedDestination.name,
         );
         return;
       }
-      setAnnouncement(
-        preparation.state === "ready"
-          ? "行前資訊已整理完成，請確認這趟路的重點。"
-          : preparation.message,
-      );
-      window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
+
+      const intent = await interpretJourneyIntent({
+        utterance,
+        knownOrigin: intentContext.origin,
+        knownDestination: intentContext.destination,
+        knownDestinationReference: intentContext.destinationReference,
+      });
+      setIntentContext({
+        origin: intent.origin,
+        destination: intent.destination,
+        destinationReference: intent.destinationReference,
+      });
+      setIntentSummary(intent.understoodIntent);
+      setIntentDirty(false);
+
+      if (intent.needsClarification) {
+        setClarificationQuestion(intent.clarificationQuestion);
+        setJourneyRequest("");
+        setIntentDirty(true);
+        setAnnouncement(intent.clarificationQuestion ?? "還需要一點資訊。");
+        window.requestAnimationFrame(() => journeyRequestRef.current?.focus());
+        return;
+      }
+
+      const normalizedOrigin = intent.origin;
+      const normalizedDestination = journeyDestinationQuery(intent);
+      if (!normalizedOrigin || !normalizedDestination) {
+        throw new Error("目前還無法確認完整的起點與目的地。");
+      }
+      setClarificationQuestion(null);
+      setOrigin(normalizedOrigin);
+      setDestination(normalizedDestination);
+      setPlaceSelections({});
+      setPlaceChoices({});
+      setAnnouncement("已理解你的需求，正在確認實際地點與路線。");
+      await prepareResolvedJourney(normalizedOrigin, normalizedDestination);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "無法整理行程。";
-      setError(`${message} 請檢查輸入後再試一次。`);
-      setAnnouncement("行程未完成，請檢查畫面上的錯誤訊息。");
+      setError(`${message} 請換句話說，並提供附近地標後再試一次。`);
+      setRequestInvalid(true);
+      setAnnouncement("行程未完成，請依畫面提示再說一次。");
+      window.requestAnimationFrame(() => journeyRequestRef.current?.focus());
     } finally {
       setBusy(false);
     }
@@ -542,28 +603,21 @@ export function JourneyWorkspace() {
     setAnnouncement("已停止朗讀。");
   }
 
-  function updatePlaceText(field: PlaceField, value: string) {
-    if (field === "origin") setOrigin(value);
-    else setDestination(value);
-    setPlaceSelections((current) => ({ ...current, [field]: undefined }));
-    setPlaceChoices((current) => ({ ...current, [field]: undefined }));
-    if (invalidField === field) {
-      setInvalidField(null);
-      setError("");
-    }
-  }
-
   function selectPlace(field: PlaceField, candidate: PlaceCandidate) {
     const inputValue = candidate.name;
     if (field === "origin") setOrigin(inputValue);
     else setDestination(inputValue);
+    setIntentContext((current) => ({
+      ...current,
+      [field]: inputValue,
+      ...(field === "destination" ? { destinationReference: null } : {}),
+    }));
     setPlaceSelections((current) => ({
       ...current,
       [field]: { inputValue, candidate },
     }));
     setPlaceChoices((current) => ({ ...current, [field]: undefined }));
     setError("");
-    setInvalidField(null);
     setAnnouncement(
       `已選擇${field === "origin" ? "起點" : "目的地"}：${candidate.name}。`,
     );
@@ -636,6 +690,11 @@ export function JourneyWorkspace() {
         : arrivalResult?.matchType === "unsupported-mode"
           ? "這趟到站"
           : "附近到站";
+  const hasConfirmedPlacesReady =
+    !intentDirty &&
+    !placeChoices.origin &&
+    !placeChoices.destination &&
+    Boolean(placeSelections.origin && placeSelections.destination);
 
   return (
     <>
@@ -663,10 +722,10 @@ export function JourneyWorkspace() {
         <section className="intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">先確認，再出發</p>
-            <h1 id="page-title">你想從哪裡，到哪裡？</h1>
+            <h1 id="page-title">直接說，你想去哪裡？</h1>
           </div>
           <p className="intro-copy">
-            輸入起點與目的地。我們會優先安排少走路、少轉乘的方案，並把路線、到站與天氣放在同一頁。
+            不用先想好該填哪個欄位。像平常說話一樣描述，我們只會追問真正缺少的資訊，再把路線、到站與天氣放在同一頁。
           </p>
         </section>
 
@@ -674,53 +733,48 @@ export function JourneyWorkspace() {
           <section className="planning-panel" aria-labelledby="planning-title">
             <div className="section-heading">
               <p>準備出門</p>
-              <h2 id="planning-title">設定這趟行程</h2>
+              <h2 id="planning-title">告訴我這趟想怎麼走</h2>
             </div>
 
             <form onSubmit={handleSubmit} noValidate>
               <div className="field-group">
-                <label htmlFor="origin">從哪裡出發？</label>
-                <input
-                  id="origin"
-                  name="origin"
-                  ref={originRef}
-                  aria-describedby={`origin-hint${invalidField === "origin" ? " form-error" : ""}`}
-                  aria-invalid={invalidField === "origin"}
-                  value={origin}
-                  onChange={(event) => updatePlaceText("origin", event.target.value)}
-                  autoComplete="street-address"
-                  enterKeyHint="next"
-                  maxLength={80}
+                <label htmlFor="journey-request">
+                  {clarificationQuestion ?? "你現在想去哪裡？"}
+                </label>
+                <textarea
+                  id="journey-request"
+                  name="journeyRequest"
+                  ref={journeyRequestRef}
+                  aria-describedby={`journey-request-hint${error ? " form-error" : ""}`}
+                  aria-invalid={requestInvalid}
+                  value={journeyRequest}
+                  onChange={(event) => {
+                    setJourneyRequest(event.target.value);
+                    setIntentDirty(true);
+                    setError("");
+                    setRequestInvalid(false);
+                  }}
+                  autoComplete="off"
+                  enterKeyHint="send"
+                  maxLength={280}
+                  rows={4}
+                  placeholder="例如：我在台北車站，想去台大醫院；或帶我去附近的捷運站"
                   required
                 />
-                <p id="origin-hint" className="field-hint">
-                  例如：台北車站、住家附近的站牌
+                <p id="journey-request-hint" className="field-hint">
+                  可以說地址、車站、店家或附近地標；不確定時，我們會一次只問一件事。
                 </p>
-                {renderPlaceConfirmation("origin")}
               </div>
 
-              <div className="field-group">
-                <label htmlFor="destination">要去哪裡？</label>
-                <input
-                  id="destination"
-                  name="destination"
-                  ref={destinationRef}
-                  aria-describedby={`destination-hint${invalidField === "destination" ? " form-error" : ""}`}
-                  aria-invalid={invalidField === "destination"}
-                  value={destination}
-                  onChange={(event) =>
-                    updatePlaceText("destination", event.target.value)
-                  }
-                  autoComplete="street-address"
-                  enterKeyHint="done"
-                  maxLength={80}
-                  required
-                />
-                <p id="destination-hint" className="field-hint">
-                  例如：台大醫院、附近的區公所
-                </p>
-                {renderPlaceConfirmation("destination")}
-              </div>
+              {intentSummary ? (
+                <div className="intent-understood" role="status">
+                  <p className="intent-understood-label">目前理解</p>
+                  <p>{intentSummary}</p>
+                </div>
+              ) : null}
+
+              {renderPlaceConfirmation("origin")}
+              {renderPlaceConfirmation("destination")}
 
               <div
                 className="planning-defaults"
@@ -744,7 +798,15 @@ export function JourneyWorkspace() {
 
               <button className="primary-action" type="submit" disabled={busy}>
                 <span aria-hidden="true">→</span>
-                {busy ? "正在整理資訊" : "整理這趟行程"}
+                {busy
+                  ? "正在理解並整理"
+                  : placeChoices.origin ||
+                      placeChoices.destination ||
+                      hasConfirmedPlacesReady
+                    ? "用確認的地點繼續"
+                    : clarificationQuestion
+                      ? "回答後繼續"
+                      : "幫我安排這趟路"}
               </button>
             </form>
 
@@ -1035,7 +1097,7 @@ export function JourneyWorkspace() {
                   <i />
                   <i />
                 </span>
-                <p>填好左邊的行程後，我們會先整理最重要的三件事：</p>
+                <p>說出這趟想怎麼走後，我們會先整理最重要的三件事：</p>
                 <ul>
                   <li>怎麼走，步行與轉乘各有多少</li>
                   <li>下一班車大約何時抵達</li>

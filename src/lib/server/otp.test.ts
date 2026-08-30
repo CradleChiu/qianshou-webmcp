@@ -137,9 +137,8 @@ describe("OTP adapter", () => {
       city: null,
     });
     expect(bodies[0]?.query).toContain("planConnection");
-    expect(bodies[0]?.query).toContain("balancedPlanConnection");
+    expect(bodies[0]?.query).not.toContain("balancedPlanConnection");
     expect(bodies[0]?.variables).toMatchObject({
-      balancedPreferences: {},
       preferences: {
         accessibility: { wheelchair: { enabled: true } },
         street: { walk: { reluctance: 4 } },
@@ -277,9 +276,7 @@ describe("OTP adapter", () => {
     walkingOnly.node.walkTime = 600;
     walkingOnly.node.walkDistance = 800;
     walkingOnly.node.legs = [directWalk];
-    Object.assign(body.data, {
-      balancedPlanConnection: { edges: [walkingOnly] },
-    });
+    body.data.planConnection.edges.push(walkingOnly);
     const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
     const client = new OtpClient(
       { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },

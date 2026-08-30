@@ -5,6 +5,8 @@ import type {
   TransitMode,
   VehicleArrivalRequest,
 } from "@/lib/domain/journey";
+import type { JourneyIntentRequest } from "@/lib/domain/intent";
+import { intentService } from "@/lib/server/intent-service";
 import { journeyServices } from "@/lib/server/journey-service";
 
 export const runtime = "nodejs";
@@ -138,6 +140,31 @@ function readVehicleArrivalRequest(
   };
 }
 
+function readOptionalIntentText(
+  value: Record<string, unknown>,
+  key: "knownOrigin" | "knownDestination",
+): string | null {
+  const field = value[key];
+  if (field === undefined || field === null) return null;
+  return readString(value, key, key === "knownOrigin" ? "已知起點" : "已知目的地");
+}
+
+function readIntentRequest(value: unknown): JourneyIntentRequest {
+  if (!isRecord(value)) throw new Error("行程描述格式錯誤。");
+  const utterance = value.utterance;
+  if (typeof utterance !== "string") throw new Error("請說出這趟路想怎麼走。");
+  const normalized = utterance.trim();
+  if (normalized.length < 2) throw new Error("請多說一點這趟路想怎麼走。");
+  if (normalized.length > 280) throw new Error("行程描述不能超過 280 個字。");
+  return {
+    utterance: normalized,
+    knownOrigin: readOptionalIntentText(value, "knownOrigin"),
+    knownDestination: readOptionalIntentText(value, "knownDestination"),
+    knownDestinationReference:
+      value.knownDestinationReference === "origin" ? "origin" : null,
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as unknown;
@@ -148,6 +175,11 @@ export async function POST(request: Request) {
     if (body.action === "plan") {
       return Response.json(
         await journeyServices.planAccessibleTrip(readPlanRequest(body.request)),
+      );
+    }
+    if (body.action === "interpret") {
+      return Response.json(
+        await intentService.interpret(readIntentRequest(body.request)),
       );
     }
     if (body.action === "prepare") {

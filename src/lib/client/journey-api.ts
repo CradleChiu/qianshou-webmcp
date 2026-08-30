@@ -9,8 +9,13 @@ import type {
   VehicleArrivalResult,
   WeatherBrief,
 } from "@/lib/domain/journey";
+import type {
+  JourneyIntentRequest,
+  JourneyIntentResult,
+} from "@/lib/domain/intent";
 
 type JourneyAction =
+  | { action: "interpret"; request: JourneyIntentRequest }
   | { action: "prepare"; request: JourneyPreparationRequest }
   | { action: "plan"; request: JourneyRequest }
   | { action: "places"; query: string }
@@ -18,7 +23,8 @@ type JourneyAction =
   | { action: "weather"; location: string };
 
 async function requestJourney<T extends object>(body: JourneyAction): Promise<T> {
-  const response = await fetch("/api/journey", {
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const response = await fetch(`${basePath}/api/journey`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -42,6 +48,12 @@ export function prepareAccessibleJourney(
   request: JourneyPreparationRequest,
 ): Promise<JourneyPreparation> {
   return requestJourney<JourneyPreparation>({ action: "prepare", request });
+}
+
+export function interpretJourneyIntent(
+  request: JourneyIntentRequest,
+): Promise<JourneyIntentResult> {
+  return requestJourney<JourneyIntentResult>({ action: "interpret", request });
 }
 
 export function planAccessibleTrip(

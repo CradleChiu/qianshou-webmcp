@@ -18,11 +18,13 @@
 ## 已完成
 
 - Next.js、React、TypeScript 應用骨架。
-- 起點、目的地與少步行／少轉乘／無階梯偏好。
+- 單一自然語言行程入口；使用者可以直接說「帶我去最近的便利商店」，缺少目前位置時系統只追問這一件事，並在下一輪保留已理解的目的地。
+- 固定採用少走路、少轉乘、避開資料中已知階梯的規劃原則，不要求目標使用者自行理解或勾選技術性偏好。
+- 同機、loopback-only 的 Codex CLI 意圖服務：結構化輸出、60 秒逾時、同時最多 2 筆；關閉 shell、瀏覽器、外掛與多 Agent，採唯讀、ephemeral 執行。
 - 可朗讀的行程結果，以及逐項呈現官方／示範、資料時間、取得時間、新鮮度與限制。
 - 單一 `prepare_accessible_journey` WebMCP tool：使用者只需用自然語言說明起點、目的地與偏好，系統會自行完成地點解析、路線、精確到站與短時天氣；同名地點一定先交由使用者確認，不要求使用者知道工具名稱或候選 ID。
 - 主要畫面與朗讀只使用日常行程語言；OTP、GTFS、TDX 等實作與來源細節保留在可展開的「資料來源與目前限制」。
-- WebMCP 不可用時保留完整手動操作。
+- WebMCP 不可用時保留完整的單一自然語言操作，不退回要求精準拆分起點與目的地的表單。
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。
 - TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站與臺北捷運 LiveBoard adapter。OTP 公車路段會以 `StopUID + RouteUID + Direction` 精確綁定；捷運會把月臺代碼、路線與目的地方向精確對到 TRTC 進站資料；純步行與其他運具不會混入附近公車。
 - TDX 雙北公車站＋OpenStreetMap Nominatim 地點搜尋；只在使用者送出時查詢，不做逐字自動完成。公共 Nominatim 查詢限制為每秒 1 次並快取 24 小時，同名候選會先顯示地址與來源供使用者選擇。
@@ -34,15 +36,28 @@
 
 ## 本機執行
 
-需求：Node.js 22+、pnpm 11+。
+需求：Node.js 22+、pnpm 11+、已登入的 Codex CLI。
 
 ```bash
 corepack pnpm install
 Copy-Item .env.example .env.local
+```
+
+終端一：
+
+```bash
+node services/intent-backend/server.mjs
+```
+
+終端二：
+
+```bash
 corepack pnpm dev
 ```
 
-開啟 `http://localhost:3000`。
+分別在兩個終端啟動意圖服務與 Next.js，然後開啟 `http://localhost:3000`。意圖服務只監聽 `127.0.0.1:8020`；使用者輸入會被視為不可信資料，Codex CLI 不會取得 shell、瀏覽器或專案寫入能力。
+
+目前 VM 試行版部署於 `https://loveyou.cradle-ai.dev/journey`。Next.js 與 Codex CLI 意圖服務都在 `loveyou`，Next.js 透過 loopback 呼叫意圖服務；OTP 也只綁定 VM 的 `127.0.0.1:8080`，不直接暴露公網。
 
 真實路線另須先建立並啟動本機 OTP；完整步驟見 [`docs/otp-local.md`](docs/otp-local.md)。最短流程：
 
@@ -81,6 +96,13 @@ python tests/otp_multimodal_smoke.py
 node node_modules/next/dist/bin/next start -p 3100
 python tests/e2e_smoke.py
 python tests/acceptance_audit.py
+```
+
+也可對已部署頁面執行同一組 UI 測試：
+
+```powershell
+$env:E2E_BASE_URL='https://loveyou.cradle-ai.dev/journey'
+python tests/e2e_smoke.py
 ```
 
 驗收報告與截圖會輸出到 `tmp/acceptance-audit/`；自動化只能驗證模擬 viewport 與 DOM／焦點狀態，不能宣稱已完成實體手機、真人螢幕閱讀器、實際語音內容或原生 WebMCP runtime 測試。
