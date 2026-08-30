@@ -198,10 +198,12 @@ function firstTransitLeg(legs: OtpLeg[]): TransitLegReference | null {
   const mode = readTransitMode(leg?.mode);
   if (!leg || !mode) return null;
 
-  const stopName =
+  const rawStopName =
     readText(leg.from?.stop?.name) ??
     readText(leg.from?.name) ??
     "上車站牌未知";
+  const stopName =
+    mode === "SUBWAY" ? subwayStationName(rawStopName) : rawStopName;
   const routeName =
     readText(leg.route?.shortName) ??
     readText(leg.route?.longName) ??
@@ -263,17 +265,48 @@ function humanizePlaceName(name: string): string {
   return name.replaceAll("(", "（").replaceAll(")", "）");
 }
 
+function subwayStationName(name: string): string {
+  const stationName = humanizePlaceName(name)
+    .replaceAll("台", "臺")
+    .replace(
+      /[-－—]\s*(?:上行|下行)?\s*月臺(?:\s*（[^）]*）)?\s*$/u,
+      "",
+    )
+    .replace(/\s*（[^）]*線）\s*$/u, "")
+    .replace(/^捷運/u, "")
+    .trim();
+
+  return stationName.endsWith("站") ? stationName : `${stationName}站`;
+}
+
+function subwayDirectionName(headsign: string): string {
+  return humanizePlaceName(headsign)
+    .replaceAll("台", "臺")
+    .replace(/^往/u, "")
+    .replace(/站$/u, "")
+    .trim();
+}
+
+function busStopName(name: string): string {
+  const stopName = humanizePlaceName(name).trim();
+  return stopName.endsWith("站牌") ? stopName : `${stopName}站牌`;
+}
+
+function transitDirectionName(headsign: string): string {
+  return humanizePlaceName(headsign).replace(/^往/u, "").trim();
+}
+
 function transitStopText(mode: TransitMode, name: string): string {
-  if (mode === "BUS") return `「${name}」站牌`;
-  if (mode === "SUBWAY") return `捷運「${name}」`;
+  if (mode === "BUS") return busStopName(name);
+  if (mode === "SUBWAY") return subwayStationName(name);
   if (mode === "RAIL") return `「${name}」車站`;
   if (mode === "TRAM") return `輕軌「${name}」`;
   return `「${name}」碼頭`;
 }
 
 function transitStopHeading(mode: TransitMode, name: string): string {
-  if (mode === "BUS") return `公車站「${name}」`;
-  if (mode === "SUBWAY") return `捷運站「${name}」`;
+  if (mode === "BUS") return busStopName(name);
+  if (mode === "SUBWAY") return `捷運${subwayStationName(name)}`;
   if (mode === "RAIL") return `火車站「${name}」`;
   if (mode === "TRAM") return `輕軌站「${name}」`;
   return `碼頭「${name}」`;
@@ -283,6 +316,7 @@ function mapLegToStep(
   leg: OtpLeg,
   previousLeg: OtpLeg | undefined,
   nextLeg: OtpLeg | undefined,
+  hasPreviousTransit: boolean,
   preferences: JourneyPreferences,
   origin: ResolvedOtpPlace,
   destination: ResolvedOtpPlace,
@@ -351,10 +385,23 @@ function mapLegToStep(
     readText(leg.route?.longName) ??
     modeName(mode);
   const headsign = readText(leg.headsign);
+  const subwayDirection =
+    transitMode === "SUBWAY" && headsign
+      ? subwayDirectionName(headsign)
+      : null;
+  const busDirection =
+    transitMode === "BUS" && headsign
+      ? transitDirectionName(headsign)
+      : null;
   return {
-    label: `搭乘${routeName}`,
-    detail: transitMode
-      ? `在${transitStopText(transitMode, from)}搭乘${routeName}${headsign ? `（往${headsign}）` : ""}，坐到${transitStopText(transitMode, to)}，車程${durationText}。`
+    label: `${hasPreviousTransit ? "轉乘" : "搭乘"}${routeName}`,
+    detail:
+      transitMode === "SUBWAY"
+        ? `${transitStopText("SUBWAY", from)}上車${subwayDirection ? `，往${subwayDirection}方向` : ""}，${durationText}後在${transitStopText("SUBWAY", to)}下車。`
+        : transitMode === "BUS"
+          ? `${transitStopText("BUS", from)}上車${busDirection ? `，往${busDirection}方向` : ""}，${durationText}後在${transitStopText("BUS", to)}下車。`
+        : transitMode
+          ? `在${transitStopText(transitMode, from)}搭乘${routeName}${headsign ? `（往${headsign}）` : ""}，坐到${transitStopText(transitMode, to)}，車程${durationText}。`
       : `搭乘${routeName}從${from}前往${to}，${durationText}。`,
     caution:
       preferences.stepFree && leg.transitLeg === true
@@ -485,6 +532,9 @@ function mapItinerary(
         leg,
         legs[index - 1],
         legs[index + 1],
+        legs
+          .slice(0, index)
+          .some((candidate) => candidate.transitLeg === true),
         preferences,
         origin,
         destination,

@@ -118,12 +118,12 @@ describe("OTP adapter", () => {
       "從臺北車站到臺大醫院：建議行程",
     );
     expect(result.data.steps[0]).toMatchObject({
-      label: "先走到捷運站「捷運入口」",
+      label: "先走到捷運入口站",
       detail: expect.stringContaining("到站後，下一步搭乘R"),
     });
     expect(result.data.steps[1].label).toBe("搭乘R");
-    expect(result.data.steps[1].detail).toContain(
-      "在捷運「臺北車站」搭乘R（往象山）",
+    expect(result.data.steps[1].detail).toBe(
+      "臺北車站上車，往象山方向，約 8 分鐘後在臺大醫院站下車。",
     );
     expect(result.data.steps[2].label).toBe("下車後前往目的地");
     expect(result.data.firstTransitLeg).toEqual({
@@ -148,6 +148,122 @@ describe("OTP adapter", () => {
         },
       },
     });
+  });
+
+  it("把捷運月臺代碼改寫成簡短的上車、轉乘與下車指示", async () => {
+    const body = responseBody();
+    const itinerary = body.data.planConnection.edges[0].node as unknown as {
+      duration: number;
+      walkTime: number;
+      walkDistance: number;
+      numberOfTransfers: number;
+      legs: unknown[];
+    };
+    itinerary.duration = 1_380;
+    itinerary.walkTime = 480;
+    itinerary.walkDistance = 370;
+    itinerary.numberOfTransfers = 1;
+    itinerary.legs = [
+      {
+        mode: "SUBWAY",
+        transitLeg: true,
+        duration: 120,
+        distance: 700,
+        headsign: "淡水站",
+        from: {
+          name: "台大醫院-上行月臺 (淡水信義線)",
+          stop: {
+            gtfsId: "1:R09_UP",
+            name: "台大醫院-上行月臺 (淡水信義線)",
+          },
+        },
+        to: {
+          name: "台北車站-上行月臺 (淡水信義線)",
+          stop: {
+            gtfsId: "1:R10_UP",
+            name: "台北車站-上行月臺 (淡水信義線)",
+          },
+        },
+        route: {
+          gtfsId: "1:R_0",
+          shortName: "淡水信義線",
+          longName: "淡水信義線",
+        },
+        trip: { gtfsId: "1:R-test-trip", directionId: "0" },
+      },
+      {
+        mode: "SUBWAY",
+        transitLeg: true,
+        duration: 780,
+        distance: 7_500,
+        headsign: "頂埔站",
+        from: {
+          name: "台北車站-下行月臺 (板南線)",
+          stop: {
+            gtfsId: "1:BL12_DN",
+            name: "台北車站-下行月臺 (板南線)",
+          },
+        },
+        to: {
+          name: "板橋-下行月臺 (板南線)",
+          stop: {
+            gtfsId: "1:BL07_DN",
+            name: "板橋-下行月臺 (板南線)",
+          },
+        },
+        route: {
+          gtfsId: "1:BL_0",
+          shortName: "板南線",
+          longName: "板南線",
+        },
+        trip: { gtfsId: "1:BL-test-trip", directionId: "0" },
+      },
+      {
+        mode: "WALK",
+        transitLeg: false,
+        duration: 480,
+        distance: 370,
+        from: { name: "板橋-下行月臺 (板南線)" },
+        to: { name: "Destination" },
+      },
+    ];
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-30T02:00:00.000Z") },
+    );
+    const banqiaoDestination: ResolvedOtpPlace = {
+      canonicalName: "板橋車站",
+      latitude: 25.01414,
+      longitude: 121.46355,
+      coordinateSource: "tdx-gtfs-station",
+    };
+
+    const result = await client.planAccessibleTrip(
+      { ...request, destination: "板橋車站" },
+      destination,
+      banqiaoDestination,
+    );
+
+    expect(result.data.steps.map((step) => step.label)).toEqual([
+      "搭乘淡水信義線",
+      "轉乘板南線",
+      "下車後前往目的地",
+    ]);
+    expect(result.data.steps[0].detail).toBe(
+      "臺大醫院站上車，往淡水方向，約 2 分鐘後在臺北車站下車。",
+    );
+    expect(result.data.steps[1].detail).toBe(
+      "臺北車站上車，往頂埔方向，約 13 分鐘後在板橋站下車。",
+    );
+    expect(result.data.steps[2].detail).toBe(
+      "在板橋站下車後，再步行約 8 分鐘（約 370 公尺）到板橋車站。",
+    );
+    expect(result.data.firstTransitLeg?.stopName).toBe("臺大醫院站");
+    const displayedSteps = JSON.stringify(result.data.steps);
+    expect(displayedSteps).not.toContain("月臺");
+    expect(displayedSteps).not.toContain("上行");
+    expect(displayedSteps).not.toContain("下行");
   });
 
   it("少走路時不會固定採用第一個純步行候選", async () => {
@@ -351,19 +467,19 @@ describe("OTP adapter", () => {
       "從你指定的起點到你指定的目的地：建議行程",
     );
     expect(result.data.steps[0]).toEqual({
-      label: "先走到公車站「馬明潭（再興中學）」",
+      label: "先走到馬明潭（再興中學）站牌",
       detail:
         "從你指定的起點出發，步行約 12 分鐘（約 900 公尺）。到站後，下一步搭乘棕12。",
       caution:
         "這段路的無障礙資訊可能不完整。若遇到樓梯、陡坡或電梯停用，請先停下確認，再改走其他路線或請人協助。",
     });
     expect(result.data.steps[1].detail).toBe(
-      "在「馬明潭（再興中學）」站牌搭乘棕12，坐到「臺大癌醫（基隆路）」站牌，車程約 8 分鐘。",
+      "馬明潭（再興中學）站牌上車，約 8 分鐘後在臺大癌醫（基隆路）站牌下車。",
     );
     expect(result.data.steps[2]).toMatchObject({
       label: "下車後前往目的地",
       detail:
-        "在「臺大癌醫（基隆路）」站牌下車後，再步行約 6 分鐘（約 390 公尺）到你指定的目的地。",
+        "在臺大癌醫（基隆路）站牌下車後，再步行約 6 分鐘（約 390 公尺）到你指定的目的地。",
     });
     expect(JSON.stringify(result.data.steps)).not.toContain("24.985000");
     expect(JSON.stringify(result.data.steps)).not.toContain("25.015000");

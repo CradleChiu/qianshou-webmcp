@@ -478,6 +478,9 @@ def run_speech_regression(browser):
     assert "GTFS" not in spoken_text
     assert "OTP" not in spoken_text
     assert "TDX" not in spoken_text
+    assert "月臺" not in spoken_text
+    assert "上行" not in spoken_text
+    assert "下行" not in spoken_text
     assert page.get_by_role("button", name="暫停朗讀").is_enabled()
     assert page.get_by_role("button", name="停止朗讀").is_enabled()
 
