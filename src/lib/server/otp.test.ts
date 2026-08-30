@@ -137,7 +137,9 @@ describe("OTP adapter", () => {
       city: null,
     });
     expect(bodies[0]?.query).toContain("planConnection");
+    expect(bodies[0]?.query).toContain("balancedPlanConnection");
     expect(bodies[0]?.variables).toMatchObject({
+      balancedPreferences: {},
       preferences: {
         accessibility: { wheelchair: { enabled: true } },
         street: { walk: { reluctance: 4 } },
@@ -152,14 +154,16 @@ describe("OTP adapter", () => {
     const body = responseBody();
     const walkingOnly = structuredClone(body.data.planConnection.edges[0]);
     const directWalk = structuredClone(walkingOnly.node.legs[0]);
-    directWalk.duration = 780;
-    directWalk.distance = 1_000;
+    directWalk.duration = 600;
+    directWalk.distance = 800;
     directWalk.to.name = "Destination";
-    walkingOnly.node.duration = 780;
-    walkingOnly.node.walkTime = 780;
-    walkingOnly.node.walkDistance = 1_000;
+    walkingOnly.node.duration = 600;
+    walkingOnly.node.walkTime = 600;
+    walkingOnly.node.walkDistance = 800;
     walkingOnly.node.legs = [directWalk];
-    body.data.planConnection.edges.unshift(walkingOnly);
+    Object.assign(body.data, {
+      balancedPlanConnection: { edges: [walkingOnly] },
+    });
     const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
     const client = new OtpClient(
       { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
@@ -175,6 +179,44 @@ describe("OTP adapter", () => {
     expect(result.data.walkingMinutes).toBe(4);
     expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
     expect(result.data.steps.map((step) => step.label)).toContain("搭乘R");
+    expect(result.data.preferenceAssessment.headline).toContain("無階梯動線");
+    expect(result.data.alternatives).toEqual([
+      expect.objectContaining({
+        label: "快 2 分鐘",
+        walkingMinutes: 10,
+        firstTransitLeg: null,
+        reason: expect.stringContaining("步行 10 分鐘"),
+      }),
+    ]);
+  });
+
+  it("少走偏好已套用但步行仍長時主動警示", async () => {
+    const body = responseBody();
+    const itinerary = body.data.planConnection.edges[0].node;
+    itinerary.duration = 2_100;
+    itinerary.walkTime = 1_440;
+    const firstWalk = itinerary.legs[0];
+    const lastWalk = itinerary.legs[2];
+    firstWalk.duration = 900;
+    firstWalk.distance = 700;
+    lastWalk.duration = 540;
+    lastWalk.distance = 450;
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(request, origin, destination);
+
+    expect(result.data.walkingMinutes).toBe(24);
+    expect(result.data.preferenceAssessment).toMatchObject({
+      status: "needs-attention",
+      headline: "少走偏好已套用，但仍需走約 24 分鐘",
+    });
+    expect(result.data.preferenceAssessment.details[0]).toContain(
+      "仍需步行約 24 分鐘",
+    );
   });
 
   it("把第一段公車轉成可供 TDX 精確查詢的識別資料", async () => {

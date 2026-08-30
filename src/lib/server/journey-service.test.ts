@@ -210,14 +210,30 @@ describe("journey service orchestration", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("捷運路段保留 OTP 路線脈絡，不改用公車倒數替代", async () => {
-    const fetcher: ServerFetch = vi.fn();
+  it("捷運路段精確查官方進站資料，不改用公車倒數替代", async () => {
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      input.toString().includes("openid-connect/token")
+        ? Response.json({ access_token: "access-token", expires_in: 3_600 })
+        : Response.json([
+            {
+              StationID: "R10",
+              StationName: { Zh_tw: "臺北車站" },
+              LineID: "R",
+              LineName: { Zh_tw: "淡水信義線" },
+              TripHeadSign: "往象山",
+              DestinationStationName: { Zh_tw: "象山" },
+              EstimateTime: 0,
+              SrcUpdateTime: "2026-08-29T00:04:30.000Z",
+            },
+          ]),
+    );
     const services = createJourneyServices({
       env: {
         TDX_CLIENT_ID: "configured",
         TDX_CLIENT_SECRET: "configured",
       },
       fetcher,
+      now: () => new Date("2026-08-29T00:05:00.000Z"),
     });
     const tripLeg = {
       mode: "SUBWAY" as const,
@@ -235,11 +251,15 @@ describe("journey service orchestration", () => {
       tripLeg,
     });
 
-    expect(result.status).toBe("unavailable");
-    expect(result.data.matchType).toBe("unsupported-mode");
+    expect(result.status).toBe("partial");
+    expect(result.data.matchType).toBe("exact-trip");
     expect(result.data.requestedLeg).toEqual(tripLeg);
-    expect(result.limitations[0]).toContain("沒有改用附近公車替代");
-    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.data.arrivals[0]).toMatchObject({
+      stopName: "臺北車站",
+      routeName: "淡水信義線",
+      minutes: 0,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("官方服務失敗時回傳 unavailable，且不偷換示範資料", async () => {

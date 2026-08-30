@@ -24,10 +24,10 @@
 - 主要畫面與朗讀只使用日常行程語言；OTP、GTFS、TDX 等實作與來源細節保留在可展開的「資料來源與目前限制」。
 - WebMCP 不可用時保留完整手動操作。
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。
-- TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站 adapter（資料快取 30 秒）。OTP 公車路段會以 `StopUID + RouteUID + Direction` 精確綁定 TDX 到站；純步行或非公車路段不會混入附近公車。
+- TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站與臺北捷運 LiveBoard adapter。OTP 公車路段會以 `StopUID + RouteUID + Direction` 精確綁定；捷運會把月臺代碼、路線與目的地方向精確對到 TRTC 進站資料；純步行與其他運具不會混入附近公車。
 - TDX 雙北公車站＋OpenStreetMap Nominatim 地點搜尋；只在使用者送出時查詢，不做逐字自動完成。公共 Nominatim 查詢限制為每秒 1 次並快取 24 小時，同名候選會先顯示地址與來源供使用者選擇。
 - 中央氣象署雙北鄉鎮逐 3 小時預報 adapter，只整理目前與下一時段、涵蓋未來約 3–6 小時（資料快取 10 分鐘）。
-- OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference。
+- OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference；畫面會明確核對偏好是否真的滿足，步行仍長時主動警示，並提供最多三個可切換比較方案。
 - TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。
 - 上游 timeout、錯誤與 unavailable 狀態；官方模式失敗時不以示範資料冒充。
 - Domain／adapter unit tests，以及桌面／手機／鍵盤／精簡朗讀／單一 WebMCP 流程的 Playwright smoke tests。
@@ -58,7 +58,7 @@ docker compose -f .\infra\otp\docker-compose.yml up -d
 
 目前官方資料範圍：
 
-- 到站：以站名關鍵字查詢臺北市與新北市公車，仍須由使用者確認站牌方向。
+- 到站：OTP 公車行程以站牌、路線與方向精確查詢臺北市／新北市公車；臺北捷運以 TDX TRTC LiveBoard 查詢列車正在進入月臺的狀態。TRTC 公開 LiveBoard 只回傳 `EstimateTime=0`，沒有完整的進站前分鐘倒數；畫面會把「目前未偵測到進站」與「服務失敗」分開，且不把前者解讀為沒有車。完整倒數屬臺北捷運會員專屬 API，另需提出申請。
 - 天氣：中央氣象署 `F-D0047-061`（臺北市）與 `F-D0047-069`（新北市）鄉鎮逐 3 小時預報；摘要只涵蓋未來約 3–6 小時。只輸入縣市時分別以中正區／板橋區為代表並明確標示，不代表街道現場狀況。
 - 地點：常用地點可直接解析；其他雙北地址、地標與站點會整合 TDX／OpenStreetMap 搜尋，確認候選後才把座標交給 OTP。介面與行程敘述保留地點名稱，不顯示原始座標。
 - 行程：OTP 接受地點搜尋確認後的座標；預設 graph 含臺北捷運及臺北／新北公車 GTFS。
@@ -88,12 +88,13 @@ python tests/acceptance_audit.py
 ## 下一步
 
 1. 依 [`docs/usability-test-plan.md`](docs/usability-test-plan.md) 與 3–5 位視障者進行實體手機、NVDA／VoiceOver／TalkBack 使用測試。
-2. 先修正測試發現的 P0／P1 問題，並用支援原生 WebMCP 的瀏覽器 runtime 做真實 smoke test。
-3. 建立 `search_nearby_places`：取得使用者明確授權的位置後，將「最近的捷運站／便利商店／無障礙廁所」解析成附近 POI；距離與 OSM `wheelchair`、`toilets:wheelchair` 缺值必須清楚標示未知。
-4. 根據參與者實際用詞與操作策略，擴充地點別稱、候選排序、站牌與方向解析；正式公開部署前改用自架 Nominatim 或具 SLA 的地理編碼服務。
-5. 加入 OTP 健康檢查、API rate limit、監控與上游異常告警。
-6. 通過第一輪使用者驗證後，再評估 TDX Bus Shape、動態到站與 OTP 靜態行程整合。
-7. 最後建立 OpenAI Realtime WebRTC 語音外殼，不讓它阻塞 WebMCP 與手動 UI。
+2. 用支援原生 WebMCP 的 Codex／ChatGPT 內建 Browser 重測本次 P1：確認 Agent 能自然說明偏好衝突、捷運進站限制與替代方案，且同頁同步更新。
+3. 向臺北捷運公司申請會員專屬「列車到站資訊」API；核准前維持 TDX LiveBoard 的誠實限制，不自行推算或偽裝完整倒數。
+4. 建立 `search_nearby_places`：取得使用者明確授權的位置後，將「最近的捷運站／便利商店／無障礙廁所」解析成附近 POI；距離與 OSM `wheelchair`、`toilets:wheelchair` 缺值必須清楚標示未知。
+5. 根據參與者實際用詞與操作策略，擴充地點別稱、候選排序、站牌與方向解析；正式公開部署前改用自架 Nominatim 或具 SLA 的地理編碼服務。
+6. 加入 OTP 健康檢查、API rate limit、監控與上游異常告警。
+7. 通過第一輪使用者驗證後，再評估 TDX Bus Shape、動態到站與 OTP 靜態行程整合。
+8. 最後建立 OpenAI Realtime WebRTC 語音外殼，不讓它阻塞 WebMCP 與手動 UI。
 
 在第一輪目標使用者驗證與 P0 修正完成前，暫不擴張更多縣市、運具或獨立資料庫。
 

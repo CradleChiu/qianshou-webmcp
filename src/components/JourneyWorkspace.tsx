@@ -1,9 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { prepareAccessibleJourney } from "@/lib/client/journey-api";
+import {
+  getVehicleArrivals as fetchVehicleArrivals,
+  prepareAccessibleJourney,
+} from "@/lib/client/journey-api";
 import type {
   InformationSource,
+  JourneyAlternative,
   JourneyPlan,
   JourneyPreparation,
   PlaceCandidate,
@@ -120,6 +124,50 @@ function SourceMetadata({ source }: { source: InformationSource }) {
   );
 }
 
+function alternativeId(plan: JourneyPlan): string {
+  const transit = plan.firstTransitLeg;
+  return [
+    "previous",
+    transit?.mode ?? "WALK",
+    transit?.stopUid ?? transit?.stopName ?? "",
+    transit?.routeUid ?? transit?.routeName ?? "",
+    plan.estimatedMinutes,
+    plan.walkingMinutes,
+    plan.transfers,
+  ].join(":");
+}
+
+function currentPlanAsAlternative(plan: JourneyPlan): JourneyAlternative {
+  return {
+    id: alternativeId(plan),
+    label: "回到上一個方案",
+    reason: `全程約 ${plan.estimatedMinutes} 分鐘・步行 ${plan.walkingMinutes} 分鐘・轉乘 ${plan.transfers} 次`,
+    summary: plan.summary,
+    estimatedMinutes: plan.estimatedMinutes,
+    walkingMinutes: plan.walkingMinutes,
+    transfers: plan.transfers,
+    steps: plan.steps,
+    firstTransitLeg: plan.firstTransitLeg,
+    preferenceAssessment: plan.preferenceAssessment,
+  };
+}
+
+function selectAlternativePlan(
+  current: JourneyPlan,
+  selected: JourneyAlternative,
+): JourneyPlan {
+  const previous = currentPlanAsAlternative(current);
+  const { id: _id, label: _label, reason: _reason, ...selectedPlan } = selected;
+  const alternatives = [previous, ...current.alternatives]
+    .filter((alternative) => alternative.id !== selected.id)
+    .filter(
+      (alternative, index, all) =>
+        all.findIndex((candidate) => candidate.id === alternative.id) === index,
+    )
+    .slice(0, 3);
+  return { ...selectedPlan, alternatives };
+}
+
 export function JourneyWorkspace() {
   const [origin, setOrigin] = useState("台北車站");
   const [destination, setDestination] = useState("台大醫院");
@@ -129,6 +177,9 @@ export function JourneyWorkspace() {
   const [toolStatus, setToolStatus] = useState<ToolStatus>("checking");
   const [results, setResults] = useState<Results>({});
   const [busy, setBusy] = useState(false);
+  const [alternativeBusyId, setAlternativeBusyId] = useState<string | null>(
+    null,
+  );
   const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("idle");
   const [error, setError] = useState("");
   const [invalidField, setInvalidField] = useState<InvalidField>(null);
@@ -348,6 +399,39 @@ export function JourneyWorkspace() {
     }
   }
 
+  async function chooseAlternative(alternative: JourneyAlternative) {
+    if (!results.plan || results.plan.status === "unavailable") return;
+    if (speechStatus !== "idle") stopSpeech();
+
+    const nextPlan = selectAlternativePlan(results.plan.data, alternative);
+    const nextEnvelope = { ...results.plan, data: nextPlan };
+    setAlternativeBusyId(alternative.id);
+    setError("");
+    setAnnouncement(`正在改用「${alternative.label}」，並更新這一班的到站資訊。`);
+    setResults((current) => ({
+      ...current,
+      plan: nextEnvelope,
+      arrivals: undefined,
+    }));
+
+    try {
+      const arrivals = await fetchVehicleArrivals({
+        stopName: nextPlan.firstTransitLeg?.stopName ?? "這趟行程",
+        tripLeg: nextPlan.firstTransitLeg,
+      });
+      setResults((current) => ({ ...current, plan: nextEnvelope, arrivals }));
+      setAnnouncement(`已改用「${alternative.label}」，到站資訊也已同步更新。`);
+      window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
+    } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "無法更新到站資訊。";
+      setError(`${message} 路線已切換，出發前請另外確認班次。`);
+      setAnnouncement("路線已切換，但到站資訊未能更新。");
+    } finally {
+      setAlternativeBusyId(null);
+    }
+  }
+
   function readCurrentPlan() {
     if (!results.plan || results.plan.status === "unavailable") return;
 
@@ -378,7 +462,9 @@ export function JourneyWorkspace() {
               `${nextArrival.routeName}在${nextArrival.stopName}${
                 nextArrival.minutes === null
                   ? "的到站時間未知"
-                  : `預估 ${nextArrival.minutes} 分鐘後到站`
+                  : nextArrival.minutes === 0
+                    ? "正在進站"
+                    : `預估 ${nextArrival.minutes} 分鐘後到站`
               }${nextArrival.headsign ? `，往${nextArrival.headsign}` : ""}。`,
             ]
           : results.arrivals
@@ -393,6 +479,8 @@ export function JourneyWorkspace() {
     const text = [
       plan.summary,
       `預估 ${plan.estimatedMinutes} 分鐘，步行約 ${plan.walkingMinutes} 分鐘，轉乘 ${plan.transfers} 次。`,
+      plan.preferenceAssessment.headline,
+      ...plan.preferenceAssessment.details,
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
       ...arrivalSpeech,
       ...weatherSpeech,
@@ -737,6 +825,53 @@ export function JourneyWorkspace() {
                   </dl>
                     </div>
 
+                    <section
+                      className={`preference-check preference-check--${results.plan.data.preferenceAssessment.status}`}
+                      aria-labelledby="preference-check-title"
+                    >
+                      <p className="preference-check-label">偏好核對</p>
+                      <h3 id="preference-check-title">
+                        {results.plan.data.preferenceAssessment.headline}
+                      </h3>
+                      <ul>
+                        {results.plan.data.preferenceAssessment.details.map(
+                          (detail) => <li key={detail}>{detail}</li>,
+                        )}
+                      </ul>
+                    </section>
+
+                    {results.plan.data.alternatives.length ? (
+                      <section
+                        className="journey-alternatives"
+                        aria-labelledby="alternative-title"
+                      >
+                        <p className="preference-check-label">可以比較</p>
+                        <h3 id="alternative-title">也可以改用這些搭法</h3>
+                        <div className="alternative-list">
+                          {results.plan.data.alternatives.map((alternative) => (
+                            <button
+                              key={alternative.id}
+                              type="button"
+                              className="alternative-option"
+                              disabled={alternativeBusyId !== null}
+                              onClick={() => void chooseAlternative(alternative)}
+                              aria-label={`改用${alternative.label}：${alternative.reason}`}
+                            >
+                              <strong>{alternative.label}</strong>
+                              <span>{alternative.reason}</span>
+                              <small>
+                                {alternativeBusyId === alternative.id
+                                  ? "正在更新班次"
+                                  : alternative.firstTransitLeg
+                                    ? `第一段搭${alternative.firstTransitLeg.routeName}`
+                                    : "全程步行"}
+                              </small>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+
                     <ol className="journey-steps" aria-label="行程步驟">
                   {results.plan.data.steps.map((step, index) => (
                     <li key={`${index}-${step.label}`}>
@@ -807,7 +942,7 @@ export function JourneyWorkspace() {
                           </p>
                           <p>{results.arrivals.limitations[0]}</p>
                         </>
-                      ) : results.arrivals.status === "unavailable" || !nextArrival ? (
+                      ) : results.arrivals.status === "unavailable" ? (
                         <>
                           <h3 id="arrival-title">
                             {arrivalResult?.matchType === "exact-trip"
@@ -824,12 +959,33 @@ export function JourneyWorkspace() {
                           ) : null}
                           <p>{results.arrivals.limitations[0]}</p>
                         </>
+                      ) : !nextArrival ? (
+                        <>
+                          <h3 id="arrival-title">
+                            {requestedLeg?.mode === "SUBWAY"
+                              ? "目前未偵測到列車進站"
+                              : arrivalResult?.matchType === "exact-trip"
+                                ? "精確班次暫無資料"
+                                : "暫時無法取得"}
+                          </h3>
+                          {requestedLeg ? (
+                            <p>
+                              {requestedLeg.routeName}・{requestedLeg.stopName}
+                              {requestedLeg.headsign
+                                ? `・往${requestedLeg.headsign}`
+                                : ""}
+                            </p>
+                          ) : null}
+                          <p>{results.arrivals.limitations[0]}</p>
+                        </>
                       ) : (
                         <>
                           <h3 id="arrival-title">
                             {nextArrival.minutes === null
                               ? "到站時間未知"
-                              : `${nextArrival.minutes} 分鐘`}
+                              : nextArrival.minutes === 0
+                                ? "列車正在進站"
+                                : `${nextArrival.minutes} 分鐘`}
                           </h3>
                           <p>
                             {nextArrival.routeName}・{nextArrival.stopName}

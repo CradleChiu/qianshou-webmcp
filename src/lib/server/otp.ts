@@ -1,5 +1,8 @@
 import type {
+  JourneyAlternative,
   JourneyPlan,
+  JourneyPlanCore,
+  JourneyPreferenceAssessment,
   JourneyPreferences,
   JourneyRequest,
   JourneyStep,
@@ -62,6 +65,9 @@ type OtpGraphqlResponse = {
     planConnection?: {
       edges?: Array<{ node?: OtpItinerary | null } | null> | null;
     } | null;
+    balancedPlanConnection?: {
+      edges?: Array<{ node?: OtpItinerary | null } | null> | null;
+    } | null;
   } | null;
   errors?: Array<{ message?: unknown }>;
 };
@@ -76,6 +82,7 @@ export const OTP_PLAN_QUERY = `
     $dateTime: PlanDateTimeInput!
     $modes: PlanModesInput!
     $preferences: PlanPreferencesInput!
+    $balancedPreferences: PlanPreferencesInput!
     $first: Int!
   ) {
     planConnection(
@@ -84,6 +91,37 @@ export const OTP_PLAN_QUERY = `
       dateTime: $dateTime
       modes: $modes
       preferences: $preferences
+      first: $first
+    ) {
+      edges {
+        node {
+          start
+          end
+          duration
+          walkTime
+          walkDistance
+          numberOfTransfers
+          accessibilityScore
+          legs {
+            mode
+            transitLeg
+            duration
+            distance
+            headsign
+            from { name stop { gtfsId name } }
+            to { name stop { gtfsId name } }
+            route { gtfsId shortName longName }
+            trip { gtfsId directionId }
+          }
+        }
+      }
+    }
+    balancedPlanConnection: planConnection(
+      origin: $origin
+      destination: $destination
+      dateTime: $dateTime
+      modes: $modes
+      preferences: $balancedPreferences
       first: $first
     ) {
       edges {
@@ -385,10 +423,10 @@ function compareItineraries(
   return 0;
 }
 
-function parseItinerary(
+function parseItineraries(
   response: OtpGraphqlResponse,
   preferences: JourneyPreferences,
-): OtpItinerary {
+): OtpItinerary[] {
   if (response.errors?.length) {
     throw new ExternalServiceError(
       "OpenTripPlanner",
@@ -406,8 +444,12 @@ function parseItinerary(
     );
   }
 
-  const itineraries = edges
-    ?.map((edge) => edge?.node)
+  const balancedEdges = response.data?.balancedPlanConnection?.edges;
+  const itineraries = [
+    ...edges,
+    ...(Array.isArray(balancedEdges) ? balancedEdges : []),
+  ]
+    .map((edge) => edge?.node)
     .filter((node): node is OtpItinerary => Boolean(node));
   if (!itineraries.length) {
     throw new ExternalServiceError(
@@ -416,9 +458,190 @@ function parseItinerary(
       "OpenTripPlanner 目前沒有找到可用路線；可能已超過末班車，請調整起訖點或稍後再試。",
     );
   }
-  return itineraries.sort((left, right) =>
+  return [...itineraries].sort((left, right) =>
     compareItineraries(left, right, preferences),
-  )[0];
+  );
+}
+
+type MappedItinerary = JourneyPlanCore & {
+  accessibilityScore: number | null;
+};
+
+function mapItinerary(
+  itinerary: OtpItinerary,
+  preferences: JourneyPreferences,
+  origin: ResolvedOtpPlace,
+  destination: ResolvedOtpPlace,
+): MappedItinerary | null {
+  const duration = readNumber(itinerary.duration);
+  const walkTime = readNumber(itinerary.walkTime);
+  const transfers = readNumber(itinerary.numberOfTransfers);
+  const legs = Array.isArray(itinerary.legs)
+    ? (itinerary.legs as OtpLeg[])
+    : [];
+  const steps = legs
+    .map((leg, index) =>
+      mapLegToStep(
+        leg,
+        legs[index - 1],
+        legs[index + 1],
+        preferences,
+        origin,
+        destination,
+      ),
+    )
+    .filter((step): step is JourneyStep => Boolean(step));
+
+  if (
+    duration === null ||
+    walkTime === null ||
+    transfers === null ||
+    !steps.length
+  ) {
+    return null;
+  }
+
+  return {
+    summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
+    estimatedMinutes: minutes(duration),
+    walkingMinutes: Math.ceil(walkTime / 60),
+    transfers: Math.max(0, Math.round(transfers)),
+    steps,
+    firstTransitLeg: firstTransitLeg(legs),
+    accessibilityScore: readNumber(itinerary.accessibilityScore),
+  };
+}
+
+function preferenceAssessment(
+  plan: MappedItinerary,
+  preferences: JourneyPreferences,
+  candidates: MappedItinerary[],
+): JourneyPreferenceAssessment {
+  const details: string[] = [];
+  let needsAttention = false;
+  const leastWalking = Math.min(
+    ...candidates.map((candidate) => candidate.walkingMinutes),
+  );
+  const fewestTransfers = Math.min(
+    ...candidates.map((candidate) => candidate.transfers),
+  );
+
+  if (preferences.minimizeWalking) {
+    const isLeastWalking = plan.walkingMinutes === leastWalking;
+    if (plan.walkingMinutes >= 15) {
+      needsAttention = true;
+      details.push(
+        isLeastWalking
+          ? `這已是目前候選中步行較少的方案，但仍需步行約 ${plan.walkingMinutes} 分鐘。`
+          : `這個方案需步行約 ${plan.walkingMinutes} 分鐘，不是目前步行最少的選項。`,
+      );
+    } else {
+      details.push(
+        isLeastWalking
+          ? `已優先選擇步行較少的方案，約走 ${plan.walkingMinutes} 分鐘。`
+          : `這個方案約走 ${plan.walkingMinutes} 分鐘。`,
+      );
+    }
+  }
+
+  if (preferences.minimizeTransfers) {
+    details.push(
+      plan.transfers === fewestTransfers
+        ? `已優先減少換車，共轉乘 ${plan.transfers} 次。`
+        : `這個方案需轉乘 ${plan.transfers} 次，另有換車較少的選項。`,
+    );
+  }
+
+  if (preferences.stepFree) {
+    needsAttention = true;
+    details.push(
+      "已要求無階梯動線，但地圖與班次的無障礙標記可能缺漏，不能當成現場可通行保證。",
+    );
+  }
+
+  const headline =
+    preferences.minimizeWalking && plan.walkingMinutes >= 15
+      ? `少走偏好已套用，但仍需走約 ${plan.walkingMinutes} 分鐘`
+      : preferences.stepFree
+        ? "偏好已套用；無階梯動線仍要現場確認"
+        : "這個方案符合目前偏好";
+
+  return {
+    status: needsAttention ? "needs-attention" : "met",
+    headline,
+    details: details.length
+      ? details
+      : [
+          `全程約 ${plan.estimatedMinutes} 分鐘、步行 ${plan.walkingMinutes} 分鐘、轉乘 ${plan.transfers} 次。`,
+        ],
+  };
+}
+
+function itineraryKey(plan: JourneyPlanCore): string {
+  const transit = plan.firstTransitLeg;
+  return [
+    transit?.mode ?? "WALK",
+    transit?.stopUid ?? transit?.stopName ?? "",
+    transit?.routeUid ?? transit?.routeName ?? "",
+    plan.walkingMinutes,
+    plan.transfers,
+  ].join(":");
+}
+
+function alternativeLabel(
+  selected: JourneyPlanCore,
+  alternative: JourneyPlanCore,
+): string {
+  const walkingDifference = selected.walkingMinutes - alternative.walkingMinutes;
+  if (walkingDifference > 0) return `少走 ${walkingDifference} 分鐘`;
+
+  const timeDifference = selected.estimatedMinutes - alternative.estimatedMinutes;
+  if (timeDifference > 0) return `快 ${timeDifference} 分鐘`;
+
+  const transferDifference = selected.transfers - alternative.transfers;
+  if (transferDifference > 0) return `少換 ${transferDifference} 次車`;
+
+  const selectedMode = selected.firstTransitLeg?.routeName;
+  const alternativeMode = alternative.firstTransitLeg?.routeName;
+  if (alternativeMode && alternativeMode !== selectedMode) {
+    return `改搭${alternativeMode}`;
+  }
+  return "另一種搭法";
+}
+
+function offersUsefulTradeoff(
+  selected: JourneyPlanCore,
+  alternative: JourneyPlanCore,
+): boolean {
+  return (
+    alternative.estimatedMinutes < selected.estimatedMinutes ||
+    alternative.walkingMinutes < selected.walkingMinutes ||
+    alternative.transfers < selected.transfers
+  );
+}
+
+function toAlternative(
+  selected: MappedItinerary,
+  alternative: MappedItinerary,
+  preferences: JourneyPreferences,
+  candidates: MappedItinerary[],
+): JourneyAlternative {
+  return {
+    id: itineraryKey(alternative),
+    label: alternativeLabel(selected, alternative),
+    reason: `全程約 ${alternative.estimatedMinutes} 分鐘・步行 ${alternative.walkingMinutes} 分鐘・轉乘 ${alternative.transfers} 次`,
+    summary: alternative.summary,
+    estimatedMinutes: alternative.estimatedMinutes,
+    walkingMinutes: alternative.walkingMinutes,
+    transfers: alternative.transfers,
+    steps: alternative.steps,
+    firstTransitLeg: alternative.firstTransitLeg,
+    preferenceAssessment: preferenceAssessment(
+      alternative,
+      preferences,
+      candidates,
+    ),
+  };
 }
 
 export class OtpClient {
@@ -470,6 +693,7 @@ export class OtpClient {
               },
             },
             preferences: requestPreferences(request.preferences),
+            balancedPreferences: {},
             first: 5,
           },
         }),
@@ -478,27 +702,20 @@ export class OtpClient {
       this.config.timeoutMs,
     );
 
-    const itinerary = parseItinerary(data, request.preferences);
-    const duration = readNumber(itinerary.duration);
-    const walkTime = readNumber(itinerary.walkTime);
-    const transfers = readNumber(itinerary.numberOfTransfers);
-    const legs = Array.isArray(itinerary.legs)
-      ? (itinerary.legs as OtpLeg[])
-      : [];
-    const steps = legs
-      .map((leg, index) =>
-        mapLegToStep(
-          leg,
-          legs[index - 1],
-          legs[index + 1],
+    const itineraries = parseItineraries(data, request.preferences);
+    const candidates = itineraries
+      .map((itinerary) =>
+        mapItinerary(
+          itinerary,
           request.preferences,
           origin,
           destination,
         ),
       )
-      .filter((step): step is JourneyStep => Boolean(step));
+      .filter((plan): plan is MappedItinerary => Boolean(plan));
+    const selected = candidates[0];
 
-    if (duration === null || walkTime === null || transfers === null || !steps.length) {
+    if (!selected) {
       throw new ExternalServiceError(
         "OpenTripPlanner",
         "invalid-response",
@@ -526,12 +743,36 @@ export class OtpClient {
           : "沿途階梯、坡度、電梯與人行環境尚未逐段確認。",
       ],
       data: {
-        summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
-        estimatedMinutes: minutes(duration),
-        walkingMinutes: Math.ceil(walkTime / 60),
-        transfers: Math.max(0, Math.round(transfers)),
-        steps,
-        firstTransitLeg: firstTransitLeg(legs),
+        summary: selected.summary,
+        estimatedMinutes: selected.estimatedMinutes,
+        walkingMinutes: selected.walkingMinutes,
+        transfers: selected.transfers,
+        steps: selected.steps,
+        firstTransitLeg: selected.firstTransitLeg,
+        preferenceAssessment: preferenceAssessment(
+          selected,
+          request.preferences,
+          candidates,
+        ),
+        alternatives: candidates
+          .slice(1)
+          .filter(
+            (candidate, index, all) =>
+              offersUsefulTradeoff(selected, candidate) &&
+              itineraryKey(candidate) !== itineraryKey(selected) &&
+              all.findIndex(
+                (other) => itineraryKey(other) === itineraryKey(candidate),
+              ) === index,
+          )
+          .slice(0, 3)
+          .map((candidate) =>
+            toAlternative(
+              selected,
+              candidate,
+              request.preferences,
+              candidates,
+            ),
+          ),
       },
     };
   }

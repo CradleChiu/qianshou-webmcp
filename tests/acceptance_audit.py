@@ -46,6 +46,7 @@ def contrast_results(page):
             '.primary-action',
             '.demo-banner',
             '.journey-summary',
+            '.preference-check',
             '.safety-boundary div > p'
           ];
 
@@ -346,8 +347,15 @@ def run_desktop(browser, results):
     )
 
     page.locator("#result-title").focus()
+    alternative_names = page.locator(".alternative-option").evaluate_all(
+        "elements => elements.map(element => element.getAttribute('aria-label'))"
+    )
+    expected_result_order = alternative_names + [
+        "●)))朗讀目前行程",
+        "資料來源與目前限制",
+    ]
     result_tab_order = []
-    for _ in range(2):
+    for _ in range(len(expected_result_order)):
         page.keyboard.press("Tab")
         result_tab_order.append(active_control(page))
     add(
@@ -355,7 +363,7 @@ def run_desktop(browser, results):
         "結果區鍵盤順序",
         "PASS"
         if [item["name"] for item in result_tab_order]
-        == ["●)))朗讀目前行程", "資料來源與目前限制"]
+        == expected_result_order
         else "FAIL",
         result_tab_order,
     )

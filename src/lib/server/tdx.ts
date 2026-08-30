@@ -41,6 +41,21 @@ type TdxArrivalRecord = {
   UpdateTime?: unknown;
 };
 
+type TdxMetroLiveBoardRecord = {
+  LineID?: unknown;
+  LineName?: { Zh_tw?: unknown };
+  StationID?: unknown;
+  StationName?: { Zh_tw?: unknown };
+  TripHeadSign?: unknown;
+  DestinationStaionID?: unknown;
+  DestinationStationID?: unknown;
+  DestinationStationName?: { Zh_tw?: unknown };
+  ServiceStatus?: unknown;
+  EstimateTime?: unknown;
+  SrcUpdateTime?: unknown;
+  UpdateTime?: unknown;
+};
+
 type TdxStopRecord = {
   StopUID?: unknown;
   StopName?: { Zh_tw?: unknown };
@@ -50,12 +65,16 @@ type TdxStopRecord = {
 
 const TDX_DOCUMENTATION_URL =
   "https://tdx.transportdata.tw/api-service/swagger";
+const TDX_RAIL_DOCUMENTATION_URL =
+  "https://tdx.transportdata.tw/api-service/swagger/basic/268fc230-2e04-471b-a728-a726167c1cfc";
 
 function readText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function latestTimestamp(records: TdxArrivalRecord[]): string | null {
+function latestTimestamp(
+  records: Array<{ SrcUpdateTime?: unknown; UpdateTime?: unknown }>,
+): string | null {
   const timestamps = records
     .flatMap((record) => [record.SrcUpdateTime, record.UpdateTime])
     .map(readText)
@@ -65,6 +84,65 @@ function latestTimestamp(records: TdxArrivalRecord[]): string | null {
     .sort((left, right) => right.timestamp - left.timestamp);
 
   return timestamps[0]?.value ?? null;
+}
+
+function latestSourceTimestamp(
+  records: Array<{ SrcUpdateTime?: unknown }>,
+): string | null {
+  const timestamps = records
+    .map((record) => readText(record.SrcUpdateTime))
+    .filter((value): value is string => Boolean(value))
+    .map((value) => ({ value, timestamp: Date.parse(value) }))
+    .filter((item) => Number.isFinite(item.timestamp))
+    .sort((left, right) => right.timestamp - left.timestamp);
+  return timestamps[0]?.value ?? null;
+}
+
+function metroStationId(stopUid: string | null): string | null {
+  const match = stopUid?.toUpperCase().match(/^(BR|BL|R|G|O|Y)\d{2}/);
+  return match?.[0] ?? null;
+}
+
+function normalizeMetroDirection(value: unknown): string {
+  return (readText(value) ?? "")
+    .replaceAll("台", "臺")
+    .replace(/^往/, "")
+    .replace(/捷運|車站|站|[\s()（）]/g, "")
+    .toLocaleLowerCase("zh-Hant-TW");
+}
+
+function metroDirectionMatches(
+  record: TdxMetroLiveBoardRecord,
+  leg: TransitLegReference,
+): boolean {
+  const expected = normalizeMetroDirection(leg.headsign);
+  if (!expected) return true;
+  return [
+    record.TripHeadSign,
+    record.DestinationStationName?.Zh_tw,
+  ].some((value) => {
+    const actual = normalizeMetroDirection(value);
+    return Boolean(
+      actual &&
+        (actual === expected ||
+          actual.includes(expected) ||
+          expected.includes(actual)),
+    );
+  });
+}
+
+function isRecentMetroObservation(
+  record: TdxMetroLiveBoardRecord,
+  now: Date,
+): boolean {
+  const observedAt = readText(record.SrcUpdateTime);
+  if (!observedAt) return false;
+  const ageMilliseconds = now.getTime() - Date.parse(observedAt);
+  return (
+    Number.isFinite(ageMilliseconds) &&
+    ageMilliseconds >= -60_000 &&
+    ageMilliseconds <= 3 * 60_000
+  );
 }
 
 function freshnessOf(
@@ -166,6 +244,33 @@ export class TdxClient {
     }
 
     return data as TdxArrivalRecord[];
+  }
+
+  private async metroLiveBoardRecords(
+    url: URL,
+    token: string,
+  ): Promise<TdxMetroLiveBoardRecord[]> {
+    const { data } = await fetchJson<unknown>(
+      "TDX 臺北捷運進站服務",
+      this.fetcher,
+      url,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/json",
+        },
+        cache: "no-store",
+      },
+      this.config.timeoutMs,
+    );
+    if (!Array.isArray(data)) {
+      throw new ExternalServiceError(
+        "TDX 臺北捷運進站服務",
+        "invalid-response",
+        "TDX 臺北捷運進站回應不是預期的陣列格式。",
+      );
+    }
+    return data as TdxMetroLiveBoardRecord[];
   }
 
   private async stopRecords(
@@ -514,6 +619,125 @@ export class TdxClient {
     this.arrivalsCache.set(cacheKey, {
       value: result,
       expiresAt: this.now().getTime() + 30_000,
+    });
+    return result;
+  }
+
+  async getMetroTripVehicleArrivals(
+    leg: TransitLegReference,
+  ): Promise<ServiceEnvelope<VehicleArrivalResult>> {
+    const stationId = metroStationId(leg.stopUid);
+    if (leg.mode !== "SUBWAY" || !stationId) {
+      throw new ExternalServiceError(
+        "TDX 臺北捷運進站服務",
+        "invalid-response",
+        "OTP 捷運路段缺少可對應臺北捷運的車站代碼。",
+      );
+    }
+
+    const lineId = stationId.replace(/\d{2}$/, "");
+    const cacheKey = [
+      "metro-trip",
+      stationId,
+      lineId,
+      normalizeMetroDirection(leg.headsign) || "all",
+    ].join(":");
+    const cached = this.arrivalsCache.get(cacheKey);
+    if (cached && cached.expiresAt > this.now().getTime()) return cached.value;
+    if (cached) this.arrivalsCache.delete(cacheKey);
+
+    let token = await this.accessToken();
+    const base = this.config.apiBaseUrl.replace(/\/$/, "");
+    const url = new URL(`${base}/v2/Rail/Metro/LiveBoard/TRTC`);
+    url.searchParams.set(
+      "$filter",
+      `StationID eq '${stationId}' and LineID eq '${lineId}'`,
+    );
+    url.searchParams.set("$orderby", "SrcUpdateTime desc");
+    url.searchParams.set("$top", "10");
+    url.searchParams.set("$format", "JSON");
+
+    let records: TdxMetroLiveBoardRecord[];
+    try {
+      records = await this.metroLiveBoardRecords(url, token);
+    } catch (error) {
+      const shouldRefreshToken =
+        error instanceof ExternalServiceError &&
+        error.kind === "http" &&
+        (error.status === 401 || error.status === 403);
+      if (!shouldRefreshToken) throw error;
+      this.token = null;
+      token = await this.accessToken();
+      records = await this.metroLiveBoardRecords(url, token);
+    }
+
+    const exactRecords = records.filter(
+      (record) =>
+        readText(record.StationID) === stationId &&
+        readText(record.LineID) === lineId &&
+        metroDirectionMatches(record, leg) &&
+        typeof record.EstimateTime === "number" &&
+        record.EstimateTime >= 0 &&
+        isRecentMetroObservation(record, this.now()),
+    );
+    const arrivals = exactRecords
+      .map((record): VehicleArrival | null => {
+        const stopName = readText(record.StationName?.Zh_tw);
+        const routeName = readText(record.LineName?.Zh_tw) ?? leg.routeName;
+        if (!stopName) return null;
+        const recordHeadsign = readText(record.TripHeadSign)?.replace(/^往/, "");
+        return {
+          stopName,
+          routeName,
+          minutes:
+            typeof record.EstimateTime === "number"
+              ? Math.ceil(record.EstimateTime / 60)
+              : null,
+          direction: leg.direction,
+          headsign: leg.headsign ?? recordHeadsign ?? null,
+          accessibilityNote:
+            "進站資料未包含月臺電梯與無障礙設施的即時狀態",
+        };
+      })
+      .filter((arrival): arrival is VehicleArrival => Boolean(arrival))
+      .slice(0, 2);
+    const retrievedAt = this.now().toISOString();
+    const observedAt = latestSourceTimestamp(
+      exactRecords.length ? exactRecords : records,
+    );
+    const freshness = freshnessOf(observedAt, this.now());
+    const directionText = leg.headsign ? `往${leg.headsign}` : "指定方向";
+    const result: ServiceEnvelope<VehicleArrivalResult> = {
+      status: "partial",
+      generatedAt: retrievedAt,
+      source: {
+        name: "TDX 臺北捷運列車進站資料",
+        observedAt,
+        retrievedAt,
+        kind: "official",
+        url: TDX_RAIL_DOCUMENTATION_URL,
+        freshness,
+      },
+      limitations: arrivals.length
+        ? [
+            `進站狀態已綁定 ${leg.routeName}、${leg.stopName}、${directionText}。`,
+            "臺北捷運公開 LiveBoard 只在列車進入月臺時回傳 EstimateTime=0，不提供完整的進站前分鐘倒數。",
+            "列車進站資料未包含月臺電梯與無障礙設施的即時狀態。",
+          ]
+        : [
+            `目前未偵測到 ${leg.routeName} 在${leg.stopName}、${directionText}有列車正在進入月臺。`,
+            "這不代表沒有車；臺北捷運公開 LiveBoard 不提供完整的進站前分鐘倒數，請以月臺顯示器或站務資訊確認。",
+            "系統沒有改用其他路線、反方向或示範資料替代。",
+          ],
+      data: {
+        matchType: "exact-trip",
+        requestedLeg: leg,
+        arrivals,
+      },
+    };
+    this.arrivalsCache.set(cacheKey, {
+      value: result,
+      expiresAt: this.now().getTime() + 20_000,
     });
     return result;
   }

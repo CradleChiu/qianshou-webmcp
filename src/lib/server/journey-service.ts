@@ -329,6 +329,12 @@ export function createJourneyServices(
         transfers: 0,
         steps: [],
         firstTransitLeg: null,
+        preferenceAssessment: {
+          status: "needs-attention",
+          headline: "目前無法核對行動偏好",
+          details: ["請先取得可用路線，再確認步行、換車與無階梯需求。"],
+        },
+        alternatives: [],
       };
 
       if (!origin || !destination) {
@@ -397,15 +403,44 @@ export function createJourneyServices(
       const tripLeg = hasTripContext
         ? (request.tripLeg as TransitLegReference | undefined)
         : undefined;
+      if (tripLeg?.mode === "SUBWAY") {
+        if (!tdx) {
+          return unavailableEnvelope(
+            {
+              matchType: "exact-trip",
+              requestedLeg: tripLeg,
+              arrivals: [],
+            },
+            "TDX 臺北捷運列車進站資料",
+            "https://tdx.transportdata.tw/api-service/swagger/basic/268fc230-2e04-471b-a728-a726167c1cfc",
+            "尚未設定 TDX 金鑰，無法查詢這段捷運的官方列車進站資料。",
+            now(),
+          );
+        }
+        try {
+          return await tdx.getMetroTripVehicleArrivals(tripLeg);
+        } catch (error) {
+          return unavailableEnvelope(
+            {
+              matchType: "exact-trip",
+              requestedLeg: tripLeg,
+              arrivals: [],
+            },
+            "TDX 臺北捷運列車進站資料",
+            "https://tdx.transportdata.tw/api-service/swagger/basic/268fc230-2e04-471b-a728-a726167c1cfc",
+            failureMessage("臺北捷運進站資料", error),
+            now(),
+          );
+        }
+      }
+
       if (tripLeg && tripLeg.mode !== "BUS") {
         const modeName =
-          tripLeg.mode === "SUBWAY"
-            ? "捷運"
-            : tripLeg.mode === "RAIL"
-              ? "鐵路"
-              : tripLeg.mode === "TRAM"
-                ? "輕軌"
-                : tripLeg.mode;
+          tripLeg.mode === "RAIL"
+            ? "鐵路"
+            : tripLeg.mode === "TRAM"
+              ? "輕軌"
+              : tripLeg.mode;
         return unavailableEnvelope(
           {
             matchType: "unsupported-mode",

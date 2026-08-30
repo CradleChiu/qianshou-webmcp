@@ -83,7 +83,7 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: toolName,
       description:
-        "Prepare a complete Taipei or New Taipei trip from the user's natural place names. This one action resolves both places, plans the accessible route, checks the exact first transit arrival, and adds a 3-to-6-hour destination weather brief while updating the visible page. If state is needs-confirmation, ask one natural-language question using candidate names and descriptions, never expose candidate IDs, never guess, then call this same action again with the selected candidate ID. Speak to the user about their journey, not tools or implementation details.",
+        "Prepare a complete Taipei or New Taipei trip from the user's natural place names. This one action resolves both places, plans the accessible route, checks whether walking, transfer, and step-free preferences were actually met, returns comparable route alternatives, checks the exact first transit arrival, and adds a 3-to-6-hour destination weather brief while updating the visible page. If preferences conflict, explain the tradeoff and offer the returned alternatives in natural language. If state is needs-confirmation, ask one natural-language question using candidate names and descriptions, never expose candidate IDs, never guess, then call this same action again with the selected candidate ID. Speak to the user about their journey, not tools or implementation details.",
       inputSchema: {
         type: "object",
         properties: {

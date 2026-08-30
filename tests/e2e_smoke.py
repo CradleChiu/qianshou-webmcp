@@ -163,7 +163,10 @@ def run_desktop(browser):
     assert journey["destination"]["name"] == "臺大醫院"
     assert journey["plan"]["data"]["firstTransitLeg"] is not None
     assert journey["plan"]["data"]["firstTransitLeg"]["mode"] == "SUBWAY"
-    assert journey["arrivals"]["data"]["matchType"] == "unsupported-mode"
+    assert journey["arrivals"]["status"] == "partial"
+    assert journey["arrivals"]["data"]["matchType"] == "exact-trip"
+    assert "preferenceAssessment" in journey["plan"]["data"]
+    assert "alternatives" in journey["plan"]["data"]
     assert page.get_by_text("已確認：臺北車站", exact=True).is_visible()
     page.get_by_role("heading", name="這趟路的重點").wait_for()
     assert page.get_by_text("目的地天氣").is_visible()
@@ -172,12 +175,12 @@ def run_desktop(browser):
     ).is_visible()
     assert page.get_by_text("今明 36 小時", exact=False).count() == 0
     assert page.get_by_text("從臺北車站到臺大醫院：建議行程").count() == 1
+    assert page.get_by_text("偏好核對", exact=True).is_visible()
     assert page.locator(".brief-card .card-label").filter(
-        has_text="這趟到站"
+        has_text="這趟下一班車"
     ).is_visible()
-    assert page.locator(".brief-card h3").filter(
-        has_text="暫無進站倒數"
-    ).is_visible()
+    arrival_heading = page.locator(".brief-card").first.locator("h3").inner_text()
+    assert arrival_heading in ["目前未偵測到列車進站", "列車正在進站"]
     assert page.get_by_text("14・", exact=False).count() == 0
     assert page.locator(".journey-summary .source-kind").inner_text() == "整合資料"
     primary_summary = page.locator(".journey-summary").inner_text()
@@ -201,6 +204,36 @@ def run_place_disambiguation(browser, viewport, artifact_label):
 
     def route_journey(route):
         body = route.request.post_data_json or {}
+        if body.get("action") == "arrivals":
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                json={
+                    "status": "partial",
+                    "generatedAt": "2026-08-30T00:00:00.000Z",
+                    "source": {
+                        "name": "TDX 測試到站資料",
+                        "observedAt": "2026-08-30T00:00:00.000Z",
+                        "retrievedAt": "2026-08-30T00:00:00.000Z",
+                        "kind": "official",
+                        "freshness": "fresh",
+                    },
+                    "limitations": ["測試用精確班次。"],
+                    "data": {
+                        "matchType": "exact-trip",
+                        "requestedLeg": body.get("tripLeg"),
+                        "arrivals": [{
+                            "stopName": "中正路站",
+                            "routeName": "22",
+                            "minutes": 3,
+                            "direction": 0,
+                            "headsign": "臺大醫院",
+                            "accessibilityNote": "低地板車輛狀態仍需確認",
+                        }],
+                    },
+                },
+            )
+            return
         if body.get("action") != "prepare" or body.get("request", {}).get("origin") != "中正路":
             route.continue_()
             return
@@ -272,6 +305,39 @@ def run_place_disambiguation(browser, viewport, artifact_label):
                                 "detail": "從中正路出發，步行約 12 分鐘到臺大醫院。",
                             }],
                             "firstTransitLeg": None,
+                            "preferenceAssessment": {
+                                "status": "needs-attention",
+                                "headline": "偏好已套用；無階梯動線仍要現場確認",
+                                "details": ["仍請確認現場通行情況。"],
+                            },
+                            "alternatives": [{
+                                "id": "alt-less-walking",
+                                "label": "少走 4 分鐘",
+                                "reason": "全程約 15 分鐘・步行 8 分鐘・轉乘 0 次",
+                                "summary": "從中正路到臺大醫院：建議行程",
+                                "estimatedMinutes": 15,
+                                "walkingMinutes": 8,
+                                "transfers": 0,
+                                "steps": [{
+                                    "label": "搭乘22",
+                                    "detail": "在中正路站搭乘22前往臺大醫院。",
+                                }],
+                                "firstTransitLeg": {
+                                    "mode": "BUS",
+                                    "stopName": "中正路站",
+                                    "routeName": "22",
+                                    "headsign": "臺大醫院",
+                                    "stopUid": "TPE-TEST",
+                                    "routeUid": "TPE-ROUTE",
+                                    "direction": 0,
+                                    "city": "Taipei",
+                                },
+                                "preferenceAssessment": {
+                                    "status": "needs-attention",
+                                    "headline": "步行已減少；無階梯動線仍要現場確認",
+                                    "details": ["步行約 8 分鐘。"],
+                                },
+                            }],
                         },
                     },
                     "arrivals": {
@@ -339,6 +405,15 @@ def run_place_disambiguation(browser, viewport, artifact_label):
     summary = page.locator(".summary-title").inner_text()
     assert "從中正路到臺大醫院" in summary
     assert "25.043" not in page.locator(".result-panel").inner_text()
+    alternative = page.get_by_role(
+        "button", name="改用少走 4 分鐘", exact=False
+    )
+    assert alternative.is_visible()
+    alternative.focus()
+    page.keyboard.press("Enter")
+    page.get_by_role("heading", name="3 分鐘").wait_for()
+    assert page.get_by_role("heading", name="搭乘22").is_visible()
+    assert page.locator(":focus").get_attribute("id") == "result-title"
     assert_no_duplicate_ids(page)
     page.screenshot(
         path=str(ARTIFACTS / f"{artifact_label}-place-selected.png"),
@@ -371,11 +446,11 @@ def run_mobile(browser):
     assert page.get_by_role("button", name="暫停朗讀").is_disabled()
     assert page.get_by_role("button", name="停止朗讀").is_disabled()
     assert page.locator(".brief-card .card-label").filter(
-        has_text="這趟到站"
+        has_text="這趟下一班車"
     ).is_visible()
-    assert page.locator(".brief-card h3").filter(
-        has_text="暫無進站倒數"
-    ).is_visible()
+    arrival_heading = page.locator(".brief-card").first.locator("h3").inner_text()
+    assert arrival_heading in ["目前未偵測到列車進站", "列車正在進站"]
+    assert page.get_by_text("偏好核對", exact=True).is_visible()
     assert page.get_by_text("目的地天氣").is_visible()
     assert page.locator(".brief-card--weather").get_by_text(
         "3 小時分段", exact=False

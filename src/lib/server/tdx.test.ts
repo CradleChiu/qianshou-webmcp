@@ -306,4 +306,106 @@ describe("TDX adapter", () => {
     expect(result.data.arrivals).toEqual([]);
     expect(result.limitations[1]).toContain("沒有改用附近其他路線、反方向");
   });
+
+  it("把 OTP 捷運月臺代碼與方向精確綁定 TDX 臺北捷運進站資料", async () => {
+    const requests: string[] = [];
+    const fetcher: ServerFetch = vi.fn(async (input) => {
+      const url = input.toString();
+      requests.push(url);
+      if (url.endsWith("/token")) {
+        return jsonResponse({ access_token: "access-token", expires_in: 3_600 });
+      }
+      return jsonResponse([
+        {
+          StationID: "BL12",
+          StationName: { Zh_tw: "臺北車站" },
+          LineID: "BL",
+          LineName: { Zh_tw: "板南線" },
+          TripHeadSign: "往南港展覽館",
+          DestinationStationName: { Zh_tw: "南港展覽館" },
+          EstimateTime: 0,
+          SrcUpdateTime: "2026-08-29T00:04:30.000Z",
+        },
+        {
+          StationID: "BL12",
+          StationName: { Zh_tw: "臺北車站" },
+          LineID: "BL",
+          LineName: { Zh_tw: "板南線" },
+          TripHeadSign: "往頂埔",
+          DestinationStationName: { Zh_tw: "頂埔" },
+          EstimateTime: 0,
+          SrcUpdateTime: "2026-08-29T00:04:40.000Z",
+        },
+        {
+          StationID: "BL12",
+          StationName: { Zh_tw: "臺北車站" },
+          LineID: "BL",
+          LineName: { Zh_tw: "板南線" },
+          TripHeadSign: "往南港展覽館",
+          DestinationStationName: { Zh_tw: "南港展覽館" },
+          EstimateTime: 0,
+          SrcUpdateTime: "2026-08-28T23:55:00.000Z",
+        },
+      ]);
+    });
+    const leg: TransitLegReference = {
+      mode: "SUBWAY",
+      stopName: "台北車站-上行月臺(板南線)",
+      routeName: "板南線",
+      headsign: "南港展覽館站",
+      stopUid: "BL12_UP",
+      routeUid: "Blue",
+      direction: null,
+      city: null,
+    };
+
+    const result = await createClient(fetcher).getMetroTripVehicleArrivals(leg);
+
+    expect(result.status).toBe("partial");
+    expect(result.data.matchType).toBe("exact-trip");
+    expect(result.data.requestedLeg).toEqual(leg);
+    expect(result.data.arrivals).toEqual([
+      expect.objectContaining({
+        stopName: "臺北車站",
+        routeName: "板南線",
+        minutes: 0,
+        headsign: "南港展覽館站",
+      }),
+    ]);
+    expect(result.source).toMatchObject({
+      kind: "official",
+      freshness: "fresh",
+      observedAt: "2026-08-29T00:04:30.000Z",
+    });
+    expect(requests[1]).toContain("/v2/Rail/Metro/LiveBoard/TRTC");
+    expect(new URL(requests[1]).searchParams.get("$filter")).toBe(
+      "StationID eq 'BL12' and LineID eq 'BL'",
+    );
+  });
+
+  it("捷運目前未偵測到進站列車時不誤判成沒有車或服務失敗", async () => {
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      input.toString().endsWith("/token")
+        ? jsonResponse({ access_token: "access-token", expires_in: 3_600 })
+        : jsonResponse([]),
+    );
+    const leg: TransitLegReference = {
+      mode: "SUBWAY",
+      stopName: "臺北車站",
+      routeName: "淡水信義線",
+      headsign: "象山",
+      stopUid: "R10_DOWN",
+      routeUid: "Red",
+      direction: null,
+      city: null,
+    };
+
+    const result = await createClient(fetcher).getMetroTripVehicleArrivals(leg);
+
+    expect(result.status).toBe("partial");
+    expect(result.data.arrivals).toEqual([]);
+    expect(result.limitations[0]).toContain("目前未偵測到");
+    expect(result.limitations[1]).toContain("這不代表沒有車");
+    expect(result.limitations[2]).toContain("沒有改用其他路線、反方向");
+  });
 });

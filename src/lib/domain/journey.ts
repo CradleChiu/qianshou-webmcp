@@ -57,13 +57,31 @@ export type TransitLegReference = {
   city: "Taipei" | "NewTaipei" | null;
 };
 
-export type JourneyPlan = {
+export type JourneyPreferenceAssessment = {
+  status: "met" | "needs-attention";
+  headline: string;
+  details: string[];
+};
+
+export type JourneyPlanCore = {
   summary: string;
   estimatedMinutes: number;
   walkingMinutes: number;
   transfers: number;
   steps: JourneyStep[];
   firstTransitLeg: TransitLegReference | null;
+};
+
+export type JourneyAlternative = JourneyPlanCore & {
+  id: string;
+  label: string;
+  reason: string;
+  preferenceAssessment: JourneyPreferenceAssessment;
+};
+
+export type JourneyPlan = JourneyPlanCore & {
+  preferenceAssessment: JourneyPreferenceAssessment;
+  alternatives: JourneyAlternative[];
 };
 
 export type VehicleArrival = {
@@ -221,6 +239,19 @@ export async function planAccessibleTrip(
         direction: null,
         city: null,
       },
+      preferenceAssessment: {
+        status: request.preferences.stepFree ? "needs-attention" : "met",
+        headline: request.preferences.stepFree
+          ? "偏好已套用；無階梯動線仍要現場確認"
+          : "這個方案符合目前偏好",
+        details: [
+          `步行約 ${walkingMinutes} 分鐘、轉乘 ${transfers} 次。`,
+          ...(request.preferences.stepFree
+            ? ["示範資料尚未確認電梯、坡道與施工狀態。"]
+            : []),
+        ],
+      },
+      alternatives: [],
     },
   };
 }
