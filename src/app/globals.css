@@ -127,61 +127,18 @@ a:focus-visible,
 
 .agent-status--failed > span { border-color: var(--rust); background: var(--rust); }
 
-.demo-banner {
-  display: flex;
-  width: min(100% - 2rem, 76rem);
-  min-height: 3.25rem;
-  margin: 0 auto;
-  padding: 0.7rem 1rem;
-  align-items: center;
-  gap: 0.75rem 1.25rem;
-  border: 2px solid var(--asphalt);
-  background: var(--tactile);
-  color: var(--asphalt);
-  line-height: 1.4;
-}
-
-.demo-banner strong { font-weight: 950; }
-
 .workspace {
   width: min(100% - 2rem, 76rem);
   margin: 0 auto;
   padding: clamp(1.5rem, 3vw, 3rem) 0 4rem;
 }
 
-.intro {
-  display: grid;
-  margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
-  align-items: end;
-  gap: 1.25rem 3rem;
-}
-
-.eyebrow, .section-heading > p, .card-label {
+.section-heading > p, .card-label {
   margin: 0 0 0.4rem;
   color: var(--harbor);
   font-size: 0.875rem;
   font-weight: 900;
   letter-spacing: 0.16em;
-}
-
-.intro h1 {
-  max-width: 12ch;
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: clamp(2.55rem, 5.5vw, 4.8rem);
-  font-weight: 900;
-  letter-spacing: -0.055em;
-  line-height: 1.02;
-}
-
-.intro-copy {
-  max-width: 38rem;
-  margin: 0;
-  padding-left: 1.25rem;
-  border-left: 0.45rem solid var(--tactile);
-  color: var(--asphalt-soft);
-  font-size: clamp(1.05rem, 1.7vw, 1.25rem);
-  line-height: 1.75;
 }
 
 .workspace-grid {
@@ -197,6 +154,7 @@ a:focus-visible,
 .result-panel { min-height: 34rem; background: #e9f2f0; }
 .section-heading { margin-bottom: 2rem; }
 
+.section-heading h1,
 .section-heading h2 {
   margin: 0;
   font-family: var(--font-display);
@@ -253,6 +211,53 @@ a:focus-visible,
 .intent-understood-label + p {
   margin-top: 0.2rem;
   font-weight: 800;
+}
+
+.location-feedback {
+  display: grid;
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-left: 6px solid var(--tactile);
+  background: #fff9e5;
+  gap: 0.25rem;
+}
+
+.location-feedback--ready {
+  border-left-color: var(--route);
+  background: var(--mist);
+}
+
+.location-feedback--failed {
+  border-left-color: var(--rust);
+  background: #fff3ef;
+}
+
+.location-feedback p { margin: 0; }
+
+.location-feedback-label {
+  font-weight: 900;
+}
+
+.location-feedback--requesting .location-feedback-label::before {
+  content: "定位中・";
+  color: var(--harbor);
+}
+
+.location-retry {
+  width: fit-content;
+  min-height: 2.75rem;
+  margin-top: 0.45rem;
+  padding: 0.45rem 0.8rem;
+  border: 2px solid var(--asphalt);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--asphalt);
+  font-weight: 900;
+}
+
+.location-retry:hover,
+.location-retry:focus-visible {
+  background: var(--tactile);
 }
 
 .selected-place {
@@ -627,33 +632,6 @@ a:focus-visible,
 .source-metadata .source-kind { margin-right: 0.55rem; }
 .source-metadata a { display: inline-block; margin-top: 0.35rem; font-weight: 800; }
 
-.safety-boundary {
-  display: grid;
-  margin-top: 2rem;
-  padding: clamp(1.25rem, 3vw, 2rem);
-  grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: 1rem;
-  border: 2px solid var(--asphalt);
-  background: var(--asphalt);
-  color: var(--paper);
-}
-
-.safety-symbol {
-  margin: 0;
-  padding: 0.45rem 0.65rem;
-  border: 2px solid var(--paper);
-  background: var(--rust);
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
-}
-
-.safety-boundary h2, .safety-boundary div > p { margin: 0; }
-.safety-boundary h2 { font-size: clamp(1.2rem, 2vw, 1.55rem); line-height: 1.35; }
-.safety-boundary div > p { margin-top: 0.5rem; color: #dbe7e6; }
-
 footer {
   padding: 2rem 1rem 3rem;
   color: var(--asphalt-soft);
@@ -674,7 +652,6 @@ footer {
 }
 
 @media (min-width: 52rem) {
-  .intro { grid-template-columns: minmax(20rem, 0.9fr) minmax(24rem, 1.1fr); }
   .workspace-grid { grid-template-columns: minmax(20rem, 0.85fr) minmax(25rem, 1.15fr); }
   .planning-panel { border-right: 2px solid var(--asphalt); border-bottom: 0; }
   .brief-grid { grid-template-columns: repeat(2, 1fr); }
@@ -683,11 +660,8 @@ footer {
 
 @media (max-width: 42rem) {
   .site-header { align-items: flex-start; flex-direction: column; }
-  .demo-banner { width: min(100% - 1rem, 76rem); align-items: flex-start; flex-direction: column; }
   .workspace { width: min(100% - 1rem, 76rem); padding-top: 2rem; }
-  .intro-copy { padding-left: 1rem; }
   .journey-summary dl { grid-template-columns: 1fr; }
-  .safety-boundary { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

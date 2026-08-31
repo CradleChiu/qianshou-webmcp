@@ -132,13 +132,15 @@ export type ServiceEnvelope<T> = {
 export type JourneyPreparationRequest = {
   origin: string;
   destination: string;
+  originLabel?: string;
+  originAccuracyMeters?: number;
   originCandidateId?: string;
   destinationCandidateId?: string;
   preferences: JourneyPreferences;
 };
 
 export type JourneyPreparation = {
-  state: "needs-confirmation" | "ready" | "unavailable";
+  state: "needs-location" | "needs-confirmation" | "ready" | "unavailable";
   message: string;
   origin: PlaceCandidate | null;
   destination: PlaceCandidate | null;

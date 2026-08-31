@@ -6,6 +6,10 @@
     "origin": {
       "type": ["string", "null"]
     },
+    "originReference": {
+      "type": ["string", "null"],
+      "enum": ["current-location", null]
+    },
     "destination": {
       "type": ["string", "null"]
     },
@@ -33,6 +37,7 @@
   },
   "required": [
     "origin",
+    "originReference",
     "destination",
     "destinationReference",
     "needsClarification",

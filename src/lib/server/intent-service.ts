@@ -33,6 +33,8 @@ function readOptionalText(
 export function parseIntentResult(value: unknown): JourneyIntentResult {
   if (!isRecord(value)) throw new Error("需求理解服務回覆格式錯誤。");
   const origin = readOptionalText(value.origin, "起點", 80);
+  const originReference =
+    value.originReference === "current-location" ? "current-location" : null;
   const destination = readOptionalText(value.destination, "目的地", 80);
   const destinationReference =
     value.destinationReference === "origin" ? "origin" : null;
@@ -71,12 +73,19 @@ export function parseIntentResult(value: unknown): JourneyIntentResult {
   if (needsClarification && (!clarificationQuestion || !clarificationTarget)) {
     throw new Error("需求理解服務未提供完整追問。");
   }
-  if (!needsClarification && (!origin || !destination)) {
+  if (
+    !needsClarification &&
+    ((!origin && originReference !== "current-location") || !destination)
+  ) {
     throw new Error("需求理解服務未提供完整地點。");
+  }
+  if (origin && originReference) {
+    throw new Error("需求理解服務同時提供地點與目前位置。");
   }
 
   return {
     origin,
+    originReference,
     destination,
     destinationReference,
     needsClarification,

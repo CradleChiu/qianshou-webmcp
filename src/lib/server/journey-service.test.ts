@@ -87,6 +87,39 @@ describe("journey service orchestration", () => {
     expect(result.weather).toBeDefined();
   });
 
+  it("裝置座標以目前位置與定位誤差呈現，不把座標當成名稱", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      Response.json(otpWalkingResponse()),
+    );
+    const services = createJourneyServices({
+      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      fetcher,
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "25.033964,121.564469",
+      originLabel: "目前位置",
+      originAccuracyMeters: 19,
+      destination: "台北市政府",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.state).toBe("ready");
+    expect(result.origin).toMatchObject({
+      name: "目前位置",
+      description: "這次行程使用的裝置定位・誤差約 19 公尺",
+      latitude: 25.033964,
+      longitude: 121.564469,
+    });
+    expect(result.plan?.data.summary).toBe(
+      "從目前位置到臺北市政府：建議行程",
+    );
+  });
+
   it("自然語言地點有多個候選時停下來請使用者確認", async () => {
     const fetcher: ServerFetch = vi.fn(async () =>
       Response.json(ambiguousPlaces()),

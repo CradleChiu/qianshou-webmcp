@@ -1,5 +1,13 @@
 import { prepareAccessibleJourney } from "@/lib/client/journey-api";
-import { DEFAULT_JOURNEY_PREFERENCES } from "@/lib/domain/journey";
+import {
+  currentLocationFailureMessage,
+  isCurrentLocationReference,
+  requestCurrentLocation,
+} from "@/lib/client/current-location";
+import {
+  DEFAULT_JOURNEY_PREFERENCES,
+  type JourneyPreparation,
+} from "@/lib/domain/journey";
 
 export const WEBMCP_RESULT_EVENT = "qianshou:webmcp-result";
 
@@ -58,6 +66,32 @@ const readOnlyAnnotations = {
   openWorldHint: true,
 } as const;
 
+function locationNeeded(message: string): JourneyPreparation {
+  return {
+    state: "needs-location",
+    message,
+    origin: null,
+    destination: null,
+    confirmations: {},
+  };
+}
+
+function redactCurrentLocation(result: JourneyPreparation): unknown {
+  if (!result.origin) return result;
+  return {
+    ...result,
+    origin: {
+      id: result.origin.id,
+      name: result.origin.name,
+      description: result.origin.description,
+      kind: result.origin.kind,
+      source: result.origin.source,
+      city: result.origin.city,
+      stopUid: result.origin.stopUid,
+    },
+  };
+}
+
 export async function registerJourneyTools(): Promise<{
   status: RegistrationStatus;
   cleanup: () => Promise<void>;
@@ -74,13 +108,14 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: toolName,
       description:
-        "Prepare a complete Taipei or New Taipei trip from the user's natural place names. The service always prioritizes less walking, fewer transfers, and avoiding stairs identified in the available data; these are not user-configurable inputs and are not an accessibility guarantee. This one action resolves both places, returns comparable route alternatives, checks the exact first transit arrival, and adds a 3-to-6-hour destination weather brief while updating the visible page. Explain any tradeoff and unknown accessibility conditions in natural language. If state is needs-confirmation, ask one natural-language question using candidate names and descriptions, never expose candidate IDs, never guess, then call this same action again with the selected candidate ID. Speak to the user about their journey, not tools or implementation details.",
+        "Prepare a complete Taipei or New Taipei trip from the user's natural place names. If the user gives a destination but no origin, omit origin: the page will request one-time browser location permission and use the current position only if the user allows it. Never claim permission was granted, and never ask the user for coordinates. The service always prioritizes less walking, fewer transfers, and avoiding stairs identified in the available data; these are not user-configurable inputs and are not an accessibility guarantee. This one action resolves both places, returns comparable route alternatives, checks the exact first transit arrival, and adds a 3-to-6-hour destination weather brief while updating the visible page. If state is needs-location, explain that the user can allow location in the page or say a nearby landmark. If state is needs-confirmation, ask one natural-language question using candidate names and descriptions, never expose candidate IDs, never guess, then call this same action again with the selected candidate ID. Speak to the user about their journey, not tools or implementation details.",
       inputSchema: {
         type: "object",
         properties: {
           origin: {
             type: "string",
-            description: "The origin as the user naturally said it.",
+            description:
+              "The origin as the user naturally said it. Omit when the user did not provide one or said current location.",
           },
           destination: {
             type: "string",
@@ -97,14 +132,14 @@ export async function registerJourneyTools(): Promise<{
               "Use only after the user confirms a destination candidate returned by this action.",
           },
         },
-        required: ["origin", "destination"],
+        required: ["destination"],
         additionalProperties: false,
       },
       annotations: readOnlyAnnotations,
       execute: async (rawInput) => {
         if (!isRecord(rawInput)) throw new Error("行程內容格式錯誤。");
         const input = {
-          origin: readString(rawInput, "origin", "起點"),
+          origin: readOptionalString(rawInput, "origin"),
           destination: readString(rawInput, "destination", "目的地"),
           originCandidateId: readOptionalString(rawInput, "originCandidateId"),
           destinationCandidateId: readOptionalString(
@@ -112,15 +147,38 @@ export async function registerJourneyTools(): Promise<{
             "destinationCandidateId",
           ),
         };
+        let origin = input.origin;
+        let originLabel: string | undefined;
+        let originAccuracyMeters: number | undefined;
+
+        if (isCurrentLocationReference(origin)) {
+          try {
+            const location = await requestCurrentLocation();
+            origin = location.query;
+            originLabel = location.label;
+            originAccuracyMeters = location.accuracyMeters;
+          } catch (error) {
+            const result = locationNeeded(currentLocationFailureMessage(error));
+            publishResult(toolName, result, input);
+            return result;
+          }
+        }
+        if (!origin) throw new Error("目前還無法確認起點。");
+
         const result = await prepareAccessibleJourney({
-          origin: input.origin,
+          origin,
+          originLabel,
+          originAccuracyMeters,
           destination: input.destination,
           originCandidateId: input.originCandidateId,
           destinationCandidateId: input.destinationCandidateId,
           preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
         });
-        publishResult(toolName, result, input);
-        return result;
+        publishResult(toolName, result, {
+          ...input,
+          origin: originLabel ?? input.origin,
+        });
+        return originLabel ? redactCurrentLocation(result) : result;
       },
     });
 

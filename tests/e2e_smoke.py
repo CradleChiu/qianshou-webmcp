@@ -40,6 +40,12 @@ NTUH = candidate("臺大醫院", "known:ntuh", "臺北市中正區・已確認�
 STORE = candidate(
     "便利商店", "osm:store", "臺北車站附近的便利商店・地圖候選地點"
 )
+TAIPEI_101 = candidate("台北101", "known:taipei-101", "臺北市信義區信義路五段 7 號")
+CURRENT_POSITION = {
+    **candidate("目前位置", "coordinate:current", "這次行程使用的裝置定位・誤差約 20 公尺", "address"),
+    "latitude": 25.033964,
+    "longitude": 121.564469,
+}
 
 
 def ready_preparation(origin=TAIPEI_STATION, destination=NTUH):
@@ -166,6 +172,39 @@ def install_speech_synthesis_test_double(page):
     )
 
 
+def install_geolocation_test_double(page, outcome="success"):
+    page.add_init_script(
+        """
+        (() => {
+          const outcome = __OUTCOME__;
+          window.__geoOptions = null;
+          Object.defineProperty(navigator, 'geolocation', {
+            configurable: true,
+            value: {
+              getCurrentPosition(success, failure, options) {
+                window.__geoOptions = options;
+                queueMicrotask(() => {
+                  if (outcome === 'denied') {
+                    failure({ code: 1, message: 'denied' });
+                    return;
+                  }
+                  success({
+                    coords: {
+                      latitude: 25.0339644,
+                      longitude: 121.5644689,
+                      accuracy: 19.6,
+                    },
+                    timestamp: Date.now(),
+                  });
+                });
+              }
+            }
+          });
+        })()
+        """.replace("__OUTCOME__", repr(outcome))
+    )
+
+
 def install_api_test_double(page, captured_requests):
     def route_journey(route):
         body = route.request.post_data_json or {}
@@ -174,9 +213,19 @@ def install_api_test_double(page, captured_requests):
         if action == "interpret":
             request = body.get("request", {})
             utterance = request.get("utterance", "")
+            if utterance == "我想去台北101":
+                route.fulfill(status=200, content_type="application/json", json={
+                    "origin": None, "originReference": "current-location",
+                    "destination": "台北101", "destinationReference": None,
+                    "needsClarification": False, "clarificationTarget": None,
+                    "clarificationQuestion": None,
+                    "understoodIntent": "想從目前位置前往台北101。",
+                    "confidence": "high",
+                })
+                return
             if utterance == "帶我去最近的便利商店":
                 route.fulfill(status=200, content_type="application/json", json={
-                    "origin": None, "destination": "便利商店",
+                    "origin": None, "originReference": None, "destination": "便利商店",
                     "destinationReference": "origin", "needsClarification": True,
                     "clarificationTarget": "origin",
                     "clarificationQuestion": "你現在在哪裡？可以說附近的店家、車站或地址。",
@@ -185,17 +234,25 @@ def install_api_test_double(page, captured_requests):
                 })
                 return
             if utterance == "我在台北車站" and request.get("knownDestination"):
+                known_destination = request["knownDestination"]
+                understood_destination = (
+                    f"最近的{known_destination}"
+                    if request.get("knownDestinationReference") == "origin"
+                    else known_destination
+                )
                 route.fulfill(status=200, content_type="application/json", json={
-                    "origin": "台北車站", "destination": request["knownDestination"],
-                    "destinationReference": "origin", "needsClarification": False,
+                    "origin": "台北車站", "originReference": None,
+                    "destination": known_destination,
+                    "destinationReference": request.get("knownDestinationReference"),
+                    "needsClarification": False,
                     "clarificationTarget": None, "clarificationQuestion": None,
-                    "understoodIntent": "從台北車站前往最近的便利商店。",
+                    "understoodIntent": f"從台北車站前往{understood_destination}。",
                     "confidence": "high",
                 })
                 return
             origin = "中正路" if "中正路" in utterance else "台北車站"
             route.fulfill(status=200, content_type="application/json", json={
-                "origin": origin, "destination": "台大醫院",
+                "origin": origin, "originReference": None, "destination": "台大醫院",
                 "destinationReference": None, "needsClarification": False,
                 "clarificationTarget": None, "clarificationQuestion": None,
                 "understoodIntent": f"從{origin}前往台大醫院。", "confidence": "high",
@@ -203,6 +260,14 @@ def install_api_test_double(page, captured_requests):
             return
         if action == "prepare":
             request = body.get("request", {})
+            if request.get("destination") == "台北101":
+                prepared_origin = (
+                    CURRENT_POSITION
+                    if str(request.get("origin", "")).startswith("25.033964")
+                    else TAIPEI_STATION
+                )
+                route.fulfill(json=ready_preparation(prepared_origin, TAIPEI_101))
+                return
             if request.get("destination") == "台北車站附近的便利商店":
                 route.fulfill(json=ready_preparation(TAIPEI_STATION, STORE))
                 return
@@ -248,7 +313,7 @@ def assert_no_duplicate_ids(page):
     assert duplicates == [], f"duplicate ids: {duplicates}"
 
 
-def new_page(browser, viewport, webmcp=False, speech=False):
+def new_page(browser, viewport, webmcp=False, speech=False, geolocation=None):
     page = browser.new_page(viewport=viewport)
     page.set_default_timeout(15_000)
     captured_requests = []
@@ -256,6 +321,8 @@ def new_page(browser, viewport, webmcp=False, speech=False):
         install_webmcp_test_double(page)
     if speech:
         install_speech_synthesis_test_double(page)
+    if geolocation:
+        install_geolocation_test_double(page, geolocation)
     install_api_test_double(page, captured_requests)
     page.goto(BASE_URL)
     page.wait_for_load_state("networkidle")
@@ -264,15 +331,19 @@ def new_page(browser, viewport, webmcp=False, speech=False):
 
 def run_desktop_and_webmcp(browser):
     page, _ = new_page(browser, {"width": 1440, "height": 1000}, webmcp=True)
-    assert page.get_by_role("heading", name="直接說，你想去哪裡？").is_visible()
+    assert page.get_by_role("heading", name="告訴我這趟想怎麼走", level=1).is_visible()
     assert page.locator("#journey-request").count() == 1
     assert page.locator("#origin, #destination").count() == 0
     assert page.locator('input[type="checkbox"]').count() == 0
     assert page.get_by_text("少走路、少轉乘，避開資料中已知的階梯。", exact=True).is_visible()
     assert_no_duplicate_ids(page)
+    page.wait_for_function(
+        "Object.keys(window.__webmcpTools || {}).includes('prepare_accessible_journey')"
+    )
     assert page.evaluate("() => Object.keys(window.__webmcpTools).sort()") == ["prepare_accessible_journey"]
     properties = page.evaluate("() => window.__webmcpTools.prepare_accessible_journey.inputSchema.properties")
     assert "origin" in properties and "destination" in properties
+    assert page.evaluate("() => window.__webmcpTools.prepare_accessible_journey.inputSchema.required") == ["destination"]
     assert "minimizeWalking" not in properties
     page.get_by_role("button", name="幫我安排這趟路").click()
     assert page.locator("#journey-request").get_attribute("aria-invalid") == "true"
@@ -294,6 +365,71 @@ def run_desktop_and_webmcp(browser):
     """)
     assert tool_result["state"] == "ready"
     page.screenshot(path=str(ARTIFACTS / "desktop-natural-language.png"), full_page=True)
+    page.close()
+
+
+def run_current_location(browser):
+    context = browser.new_context(
+        viewport={"width": 1180, "height": 900},
+        geolocation={
+            "latitude": 25.0339644,
+            "longitude": 121.5644689,
+            "accuracy": 19.6,
+        },
+        permissions=["geolocation"],
+    )
+    page = context.new_page()
+    page.set_default_timeout(15_000)
+    captured = []
+    install_webmcp_test_double(page)
+    install_api_test_double(page, captured)
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+    page.get_by_label("你現在想去哪裡？").fill("我想去台北101")
+    page.get_by_role("button", name="幫我安排這趟路").click()
+    page.get_by_text("已確認：目前位置", exact=True).wait_for()
+    page.get_by_role("heading", name="這趟路的重點").wait_for()
+    prepared = [item for item in captured if item.get("action") == "prepare"][-1]
+    assert prepared["request"]["origin"] == "25.033964,121.564469"
+    assert prepared["request"]["originLabel"] == "目前位置"
+    assert prepared["request"]["originAccuracyMeters"] == 20
+    assert page.evaluate(
+        "() => navigator.permissions.query({ name: 'geolocation' }).then(result => result.state)"
+    ) == "granted"
+    assert "25.033964" not in page.locator("body").inner_text()
+
+    tool_result = page.evaluate("""
+        () => window.__webmcpTools.prepare_accessible_journey.execute({
+          destination: '台北101'
+        })
+    """)
+    assert tool_result["state"] == "ready"
+    assert tool_result["origin"]["name"] == "目前位置"
+    assert "latitude" not in tool_result["origin"]
+    page.screenshot(path=str(ARTIFACTS / "current-location.png"), full_page=True)
+    context.close()
+
+
+def run_location_denied_fallback(browser):
+    page, captured = new_page(
+        browser,
+        {"width": 390, "height": 844},
+        geolocation="denied",
+    )
+    page.get_by_label("你現在想去哪裡？").fill("我想去台北101")
+    page.get_by_role("button", name="幫我安排這趟路").click()
+    page.get_by_text("目前沒有取得定位", exact=True).wait_for()
+    fallback = "請說你附近的店家、路口、車站或地址。"
+    assert page.get_by_label(fallback).is_visible()
+    assert page.get_by_role("button", name="再試一次定位").is_visible()
+    assert page.locator("#journey-request").evaluate(
+        "element => element === document.activeElement"
+    )
+    page.get_by_label(fallback).fill("我在台北車站")
+    page.get_by_role("button", name="回答後繼續").click()
+    page.get_by_role("heading", name="這趟路的重點").wait_for()
+    second_intent = [item for item in captured if item.get("action") == "interpret"][-1]
+    assert second_intent["request"]["knownDestination"] == "台北101"
     page.close()
 
 
@@ -360,6 +496,10 @@ def main():
         browser = playwright.chromium.launch(**launch_options)
         print("[e2e] desktop + WebMCP", flush=True)
         run_desktop_and_webmcp(browser)
+        print("[e2e] current location", flush=True)
+        run_current_location(browser)
+        print("[e2e] location denied fallback", flush=True)
+        run_location_denied_fallback(browser)
         print("[e2e] mobile multi-turn", flush=True)
         run_mobile_multiturn(browser)
         print("[e2e] keyboard disambiguation", flush=True)
@@ -367,7 +507,7 @@ def main():
         print("[e2e] speech", flush=True)
         run_speech(browser)
         browser.close()
-    print("desktop, mobile multi-turn intent, keyboard disambiguation, speech, and WebMCP smoke checks passed")
+    print("desktop, current location, denied fallback, mobile multi-turn intent, keyboard disambiguation, speech, and WebMCP smoke checks passed")
 
 
 if __name__ == "__main__":

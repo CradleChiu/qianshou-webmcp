@@ -17,6 +17,7 @@ test("validates and normalizes a multi-turn request", () => {
     {
       utterance: "我在台北車站",
       knownOrigin: null,
+      knownOriginReference: null,
       knownDestination: "台大醫院",
       knownDestinationReference: null,
     },
@@ -28,6 +29,7 @@ test("rejects an incomplete final result", () => {
     () =>
       validateInterpretResult({
         origin: null,
+        originReference: null,
         destination: "台大醫院",
         destinationReference: null,
         needsClarification: false,
@@ -36,7 +38,34 @@ test("rejects an incomplete final result", () => {
         understoodIntent: "想去台大醫院",
         confidence: "high",
       }),
-    /必須同時提供起點與目的地/,
+    /必須提供可用的起點或目前位置/,
+  );
+});
+
+test("accepts current location as the default origin", () => {
+  assert.deepEqual(
+    validateInterpretResult({
+      origin: null,
+      originReference: "current-location",
+      destination: "台北101",
+      destinationReference: null,
+      needsClarification: false,
+      clarificationTarget: null,
+      clarificationQuestion: null,
+      understoodIntent: "從目前位置前往台北101",
+      confidence: "high",
+    }),
+    {
+      origin: null,
+      originReference: "current-location",
+      destination: "台北101",
+      destinationReference: null,
+      needsClarification: false,
+      clarificationTarget: null,
+      clarificationQuestion: null,
+      understoodIntent: "從目前位置前往台北101",
+      confidence: "high",
+    },
   );
 });
 
@@ -77,6 +106,7 @@ test("interprets a validated result from the isolated runner", async () => {
           args[outputIndex],
           JSON.stringify({
             origin: "台北車站",
+            originReference: null,
             destination: "台大醫院",
             destinationReference: null,
             needsClarification: false,
@@ -90,5 +120,6 @@ test("interprets a validated result from the isolated runner", async () => {
     },
   );
   assert.equal(result.origin, "台北車站");
+  assert.equal(result.originReference, null);
   assert.equal(result.needsClarification, false);
 });

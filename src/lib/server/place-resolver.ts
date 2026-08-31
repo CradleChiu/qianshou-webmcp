@@ -63,6 +63,16 @@ const knownPlaces: KnownPlace[] = [
     longitude: 121.565685,
   },
   {
+    canonicalName: "台北101",
+    aliases: ["臺北101", "臺北一〇一", "101大樓"],
+    stopKeyword: "臺北101／世貿",
+    city: "Taipei",
+    countyName: "臺北市",
+    districtName: "信義區",
+    latitude: 25.033976,
+    longitude: 121.564538,
+  },
+  {
     canonicalName: "板橋車站",
     aliases: ["板橋車站", "板橋火車站", "新北板橋公車站"],
     stopKeyword: "板橋車站",

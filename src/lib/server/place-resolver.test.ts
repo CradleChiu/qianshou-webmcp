@@ -64,6 +64,11 @@ describe("place resolver", () => {
       coordinateSource: "tdx-gtfs-station",
     });
     expect(resolveOtpPlace("臺北市政府")?.longitude).toBe(121.565685);
+    expect(resolveOtpPlace("台北101")).toMatchObject({
+      canonicalName: "台北101",
+      latitude: 25.033976,
+      longitude: 121.564538,
+    });
     expect(resolveOtpPlace("板橋車站")).toMatchObject({
       canonicalName: "板橋車站",
       latitude: 25.015838,

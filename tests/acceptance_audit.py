@@ -41,9 +41,8 @@ def contrast_results(page):
         """
         () => {
           const selectors = [
-            '.agent-status', '.intro-copy', '.field-hint', '.primary-action',
-            '.demo-banner', '.journey-summary', '.preference-check',
-            '.safety-boundary div > p'
+            '.agent-status', '.field-hint', '.primary-action',
+            '.journey-summary', '.preference-check'
           ];
           function rgb(value) {
             const match = value.match(/[\\d.]+/g);

@@ -3,6 +3,7 @@ import { createIntentService, parseIntentResult } from "./intent-service";
 
 const readyResult = {
   origin: "台北車站",
+  originReference: null,
   destination: "台大醫院",
   destinationReference: null,
   needsClarification: false,
@@ -21,6 +22,20 @@ describe("intent service", () => {
     expect(() => parseIntentResult({ ...readyResult, origin: null })).toThrow(
       "未提供完整地點",
     );
+  });
+
+  it("accepts current location as a browser-resolved origin", () => {
+    expect(
+      parseIntentResult({
+        ...readyResult,
+        origin: null,
+        originReference: "current-location",
+      }),
+    ).toMatchObject({
+      origin: null,
+      originReference: "current-location",
+      destination: "台大醫院",
+    });
   });
 
   it("calls only the configured loopback service", async () => {

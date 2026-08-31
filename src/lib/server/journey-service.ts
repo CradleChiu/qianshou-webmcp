@@ -594,10 +594,23 @@ export function createJourneyServices(
         services.searchPlaces(originQuery),
         services.searchPlaces(destinationQuery),
       ]);
-      const origin = selectedCandidate(
+      const selectedOrigin = selectedCandidate(
         originSearch,
         request.originCandidateId,
       );
+      const origin =
+        selectedOrigin &&
+        request.originLabel &&
+        selectedOrigin.id.startsWith("coordinate:")
+          ? {
+              ...selectedOrigin,
+              name: request.originLabel,
+              description:
+                request.originAccuracyMeters === undefined
+                  ? "這次行程使用的裝置定位"
+                  : `這次行程使用的裝置定位・誤差約 ${request.originAccuracyMeters} 公尺`,
+            }
+          : selectedOrigin;
       const destination = selectedCandidate(
         destinationSearch,
         request.destinationCandidateId,

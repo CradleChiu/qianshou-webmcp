@@ -71,6 +71,17 @@ function readPreparationRequest(value: unknown): JourneyPreparationRequest {
   return {
     origin: readString(value, "origin", "起點"),
     destination: readString(value, "destination", "目的地"),
+    originLabel:
+      typeof value.originLabel === "string"
+        ? readString(value, "originLabel", "起點名稱")
+        : undefined,
+    originAccuracyMeters:
+      typeof value.originAccuracyMeters === "number" &&
+      Number.isFinite(value.originAccuracyMeters) &&
+      value.originAccuracyMeters >= 0 &&
+      value.originAccuracyMeters <= 10_000
+        ? Math.round(value.originAccuracyMeters)
+        : undefined,
     originCandidateId: readOptionalCandidateId(value, "originCandidateId"),
     destinationCandidateId: readOptionalCandidateId(
       value,
@@ -159,6 +170,10 @@ function readIntentRequest(value: unknown): JourneyIntentRequest {
   return {
     utterance: normalized,
     knownOrigin: readOptionalIntentText(value, "knownOrigin"),
+    knownOriginReference:
+      value.knownOriginReference === "current-location"
+        ? "current-location"
+        : null,
     knownDestination: readOptionalIntentText(value, "knownDestination"),
     knownDestinationReference:
       value.knownDestinationReference === "origin" ? "origin" : null,
