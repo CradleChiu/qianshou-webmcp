@@ -143,7 +143,7 @@ describe("OTP adapter", () => {
         accessibility: { wheelchair: { enabled: true } },
         street: { walk: { reluctance: 4 } },
         transit: {
-          transfer: { cost: 600, maximumAdditionalTransfers: 1 },
+          transfer: { cost: 600, maximumAdditionalTransfers: 2 },
         },
       },
       first: 10,
@@ -405,6 +405,41 @@ describe("OTP adapter", () => {
     expect(result.data.preferenceAssessment.details).toContain(
       "為減少總時間與步行，這個方案需轉乘 1 次；另有換車較少但整體較費力的選項。",
     );
+  });
+
+  it("允許最多兩次轉乘並排除超過上限的候選", async () => {
+    const body = responseBody();
+    const direct = body.data.planConnection.edges[0].node;
+    direct.duration = 3_600;
+    direct.walkTime = 1_200;
+    direct.numberOfTransfers = 0;
+
+    const twoTransfers = structuredClone(
+      body.data.planConnection.edges[0],
+    );
+    twoTransfers.node.duration = 1_800;
+    twoTransfers.node.walkTime = 120;
+    twoTransfers.node.numberOfTransfers = 2;
+
+    const threeTransfers = structuredClone(twoTransfers);
+    threeTransfers.node.duration = 600;
+    threeTransfers.node.walkTime = 0;
+    threeTransfers.node.numberOfTransfers = 3;
+    body.data.planConnection.edges.push(twoTransfers, threeTransfers);
+
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-31T04:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(request, origin, destination);
+
+    expect(result.data.estimatedMinutes).toBe(30);
+    expect(result.data.transfers).toBe(2);
+    expect(
+      result.data.alternatives.every((alternative) => alternative.transfers <= 2),
+    ).toBe(true);
   });
 
   it("少走偏好已套用但步行仍長時主動警示", async () => {

@@ -71,6 +71,7 @@ type OtpGraphqlResponse = {
 
 const OTP_DOCUMENTATION_URL =
   "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/";
+const MAX_TRANSFERS = 2;
 
 export const OTP_PLAN_QUERY = `
   query PlanAccessibleTrip(
@@ -388,7 +389,7 @@ function requestPreferences(preferences: JourneyPreferences) {
           transit: {
             transfer: {
               cost: 600,
-              maximumAdditionalTransfers: 1,
+              maximumAdditionalTransfers: MAX_TRANSFERS,
             },
           },
         }
@@ -477,12 +478,16 @@ function parseItineraries(
 
   const itineraries = edges
     .map((edge) => edge?.node)
-    .filter((node): node is OtpItinerary => Boolean(node));
+    .filter((node): node is OtpItinerary => Boolean(node))
+    .filter(
+      (itinerary) =>
+        itineraryMetric(itinerary, "numberOfTransfers") <= MAX_TRANSFERS,
+    );
   if (!itineraries.length) {
     throw new ExternalServiceError(
       "OpenTripPlanner",
       "no-results",
-      "OpenTripPlanner 目前沒有找到可用路線；可能已超過末班車，請調整起訖點或稍後再試。",
+      "OpenTripPlanner 目前沒有找到 2 次轉乘以內的可用路線；可能已超過末班車，請調整起訖點或稍後再試。",
     );
   }
   return [...itineraries].sort((left, right) =>
