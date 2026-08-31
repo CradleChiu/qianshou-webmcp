@@ -651,7 +651,7 @@ export function JourneyWorkspace() {
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
       ...arrivalSpeech,
       ...weatherSpeech,
-      "避開階梯所需的資料可能不完整，出發前請再確認現場。",
+      "無障礙資料仍可能缺漏，這趟路不能視為已確認無階梯。",
     ].join(" ");
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-TW";
@@ -845,7 +845,7 @@ export function JourneyWorkspace() {
                   id="journey-request"
                   name="journeyRequest"
                   ref={journeyRequestRef}
-                  aria-describedby={`journey-request-hint${error ? " form-error" : ""}`}
+                  aria-describedby={error ? "form-error" : undefined}
                   aria-invalid={requestInvalid}
                   value={journeyRequest}
                   onChange={(event) => {
@@ -861,9 +861,6 @@ export function JourneyWorkspace() {
                   placeholder="例如：我想去台北101；或我在台北車站，想去台大醫院"
                   required
                 />
-                <p id="journey-request-hint" className="field-hint">
-                  只說目的地時，我們會詢問是否使用目前位置；也可以直接說地址、車站、店家或附近地標。
-                </p>
               </div>
 
               {intentSummary ? (
@@ -907,10 +904,10 @@ export function JourneyWorkspace() {
               >
                 <p className="planning-defaults-label">我們會這樣安排</p>
                 <p className="planning-defaults-priority">
-                  少走路、少轉乘，避開資料中已知的階梯。
+                  少走路、少轉乘，優先避開有階梯標記的路段。
                 </p>
                 <p className="planning-defaults-limit">
-                  電梯、坡度與施工等現場狀態仍會在行程中標示為待確認。
+                  沒有標記的階梯、坡度、電梯與施工仍屬未知。
                 </p>
               </div>
 

@@ -250,12 +250,12 @@ export async function planAccessibleTrip(
       preferenceAssessment: {
         status: request.preferences.stepFree ? "needs-attention" : "met",
         headline: request.preferences.stepFree
-          ? "已避開已知階梯；其他路段仍要現場確認"
+          ? "無障礙資料不足，這趟路仍屬未知"
           : "這個方案符合目前規劃原則",
         details: [
           `步行約 ${walkingMinutes} 分鐘、轉乘 ${transfers} 次。`,
           ...(request.preferences.stepFree
-            ? ["示範資料尚未確認電梯、坡道與施工狀態。"]
+            ? ["示範資料沒有足夠證據確認階梯、坡道、電梯與施工狀態。"]
             : []),
         ],
       },

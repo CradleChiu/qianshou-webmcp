@@ -41,7 +41,7 @@ def contrast_results(page):
         """
         () => {
           const selectors = [
-            '.agent-status', '.field-hint', '.primary-action',
+            '.agent-status', '.primary-action',
             '.journey-summary', '.preference-check'
           ];
           function rgb(value) {
@@ -211,7 +211,7 @@ def run_desktop(browser, results):
         "intentCalls": len([item for item in captured if item.get("action") == "interpret"]),
         "prepareCalls": len([item for item in captured if item.get("action") == "prepare"]),
         "fixedPrinciple": page.get_by_text(
-            "少走路、少轉乘，避開資料中已知的階梯。", exact=True
+            "少走路、少轉乘，優先避開有階梯標記的路段。", exact=True
         ).is_visible(),
         "integratedSource": page.locator(
             ".journey-summary .source-kind--integrated"

@@ -1,6 +1,9 @@
 {
   "configVersion": "2.9",
   "routingDefaults": {
+    "itineraryFilters": {
+      "accessibilityScore": true
+    },
     "wheelchairAccessibility": {
       "trip": {
         "onlyConsiderAccessible": false,

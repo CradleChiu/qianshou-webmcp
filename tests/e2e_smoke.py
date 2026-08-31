@@ -89,7 +89,7 @@ def ready_preparation(origin=TAIPEI_STATION, destination=NTUH):
                 "firstTransitLeg": transit_leg,
                 "preferenceAssessment": {
                     "status": "needs-attention",
-                    "headline": "已避開已知階梯；其他路段仍要現場確認",
+                    "headline": "無障礙資料不足，這趟路仍屬未知",
                     "details": ["步行約 8 分鐘。"],
                 },
                 "alternatives": [],
@@ -335,7 +335,11 @@ def run_desktop_and_webmcp(browser):
     assert page.locator("#journey-request").count() == 1
     assert page.locator("#origin, #destination").count() == 0
     assert page.locator('input[type="checkbox"]').count() == 0
-    assert page.get_by_text("少走路、少轉乘，避開資料中已知的階梯。", exact=True).is_visible()
+    assert page.get_by_text(
+        "只說目的地時，我們會詢問是否使用目前位置；也可以直接說地址、車站、店家或附近地標。",
+        exact=True,
+    ).count() == 0
+    assert page.get_by_text("少走路、少轉乘，優先避開有階梯標記的路段。", exact=True).is_visible()
     assert_no_duplicate_ids(page)
     page.wait_for_function(
         "Object.keys(window.__webmcpTools || {}).includes('prepare_accessible_journey')"

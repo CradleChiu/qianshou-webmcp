@@ -14,6 +14,7 @@
 
 完整產品決策見 [`docs/product-foundation.md`](docs/product-foundation.md)。
 目標使用者驗證流程見 [`docs/usability-test-plan.md`](docs/usability-test-plan.md)。
+無障礙資料現況與對外用語判準見 [`docs/accessibility-data-coverage.md`](docs/accessibility-data-coverage.md)。
 
 ## 已完成
 
@@ -31,7 +32,7 @@
 - TDX 雙北公車站＋OpenStreetMap Nominatim 地點搜尋；只在使用者送出時查詢，不做逐字自動完成。公共 Nominatim 查詢限制為每秒 1 次並快取 24 小時，同名候選會先顯示地址與來源供使用者選擇。
 - OTP street graph 只保留雙北 GTFS 站點外圍約 5 公里的 OSM；graph 約 96.6 MB，正式容器限制為 2 GiB Java heap／3 GiB 記憶體上限，避免全臺街道圖占用 VM 記憶體。
 - 中央氣象署雙北鄉鎮逐 3 小時預報 adapter，只整理目前與下一時段、涵蓋未來約 3–6 小時（資料快取 10 分鐘）。
-- OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference；畫面會明確核對偏好是否真的滿足，步行仍長時主動警示，並提供最多三個可切換比較方案。
+- OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference；只有同批候選都有分數且被選方案嚴格較高時才說「依目前已標記資料，相對較適合」，其餘一律標示無障礙狀況未知。步行仍長時會主動警示，並提供最多三個可切換比較方案。
 - TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。
 - 上游 timeout、錯誤與 unavailable 狀態；官方模式失敗時不以示範資料冒充。
 - Domain／adapter unit tests，以及桌面／手機／鍵盤／精簡朗讀／單一 WebMCP 流程的 Playwright smoke tests。
@@ -67,6 +68,7 @@ corepack pnpm dev
 & .\infra\otp\fetch-data.ps1
 & .\infra\otp\build-graph.ps1
 docker compose -f .\infra\otp\docker-compose.yml up -d
+& .\infra\otp\audit-accessibility-coverage.ps1
 ```
 
 `.env.local` 的 `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET` 與 `CWA_API_KEY` 只在伺服器端讀取，不要加上 `NEXT_PUBLIC_`，也不要提交金鑰。兩組金鑰皆未設定時，到站與天氣會清楚顯示示範資料；OTP 或官方服務查詢失敗時，介面會顯示 unavailable，不會悄悄退回固定值。
@@ -80,6 +82,7 @@ docker compose -f .\infra\otp\docker-compose.yml up -d
 - 地點：常用地點可直接解析；其他雙北地址、地標與站點會整合 TDX／OpenStreetMap 搜尋，確認候選後才把座標交給 OTP。介面與行程敘述保留地點名稱，不顯示原始座標。
 - 目前位置：只透過瀏覽器 `getCurrentPosition` 取得一次，不使用背景追蹤；座標只送至同站 API 與 OTP 規劃這趟路，不送入 Codex CLI，也不儲存於資料庫。
 - 行程：OTP 接受地點搜尋確認後的座標；預設 graph 含臺北捷運及臺北／新北公車 GTFS。
+- 無障礙覆蓋：雙北公車 GTFS 的 61,739 個站點與 79,358 個班次皆未提供輪椅欄位；臺北捷運 722 個站點／月臺節點中 523 個有明確標記、199 個未知，5,520 個班次皆有可用標記。兩份 feed 都沒有站內 `pathways.txt`／`levels.txt`，因此不能宣稱完整無階梯動線。
 - 公車時刻：有完整站序，但部分中間站時間由 OTP 在官方時間點間插值；動態到站尚未回寫行程時間。
 - 公車線形：目前 GTFS 未提供可用的 `shapes.txt`，行程可規劃，但地圖線形仍可能不精確。
 - 路線來源：OTP 計算結果屬於「整合資料」，不是 TDX 或營運單位發布的建議路線；OpenStreetMap attribution 為 `© OpenStreetMap contributors`。
@@ -117,9 +120,10 @@ python tests/e2e_smoke.py
 3. 向臺北捷運公司申請會員專屬「列車到站資訊」API；核准前維持 TDX LiveBoard 的誠實限制，不自行推算或偽裝完整倒數。
 4. 建立 `search_nearby_places`：取得使用者明確授權的位置後，將「最近的捷運站／便利商店／無障礙廁所」解析成附近 POI；距離與 OSM `wheelchair`、`toilets:wheelchair` 缺值必須清楚標示未知。
 5. 根據參與者實際用詞與操作策略，擴充地點別稱、候選排序、站牌與方向解析；正式公開部署前改用自架 Nominatim 或具 SLA 的地理編碼服務。
-6. 加入 OTP 健康檢查、API rate limit、監控與上游異常告警。
-7. 通過第一輪使用者驗證後，再評估 TDX Bus Shape、動態到站與 OTP 靜態行程整合。
-8. 最後建立 OpenAI Realtime WebRTC 語音外殼，不讓它阻塞 WebMCP 與手動 UI。
+6. 依無障礙資料覆蓋報告補齊逐段障礙原因、OSM 標記統計與捷運電梯狀態；缺值維持未知，不以推測補齊。
+7. 加入 OTP 健康檢查、API rate limit、監控與上游異常告警。
+8. 通過第一輪使用者驗證後，再評估 TDX Bus Shape、動態到站與 OTP 靜態行程整合。
+9. 最後建立 OpenAI Realtime WebRTC 語音外殼，不讓它阻塞 WebMCP 與手動 UI。
 
 在第一輪目標使用者驗證與 P0 修正完成前，暫不擴張更多縣市、運具或獨立資料庫。
 

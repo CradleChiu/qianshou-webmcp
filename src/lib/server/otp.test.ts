@@ -293,7 +293,13 @@ describe("OTP adapter", () => {
     expect(result.data.walkingMinutes).toBe(4);
     expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
     expect(result.data.steps.map((step) => step.label)).toContain("搭乘R");
-    expect(result.data.preferenceAssessment.headline).toContain("避開已知階梯");
+    expect(result.data.preferenceAssessment).toMatchObject({
+      status: "needs-attention",
+      headline: "無障礙資料不足，這趟路仍屬未知",
+      details: expect.arrayContaining([
+        expect.stringContaining("未知路段仍可能被採用"),
+      ]),
+    });
     expect(result.data.alternatives).toEqual([
       expect.objectContaining({
         label: "快 2 分鐘",
@@ -302,6 +308,62 @@ describe("OTP adapter", () => {
         reason: expect.stringContaining("步行 10 分鐘"),
       }),
     ]);
+  });
+
+  it("只有完整可比較的候選分數才能稱為相對較適合", async () => {
+    const body = responseBody();
+    const alternative = structuredClone(body.data.planConnection.edges[0]);
+    alternative.node.duration = 900;
+    alternative.node.walkTime = 360;
+    alternative.node.walkDistance = 420;
+    alternative.node.accessibilityScore = 0.4;
+    body.data.planConnection.edges[0].node.accessibilityScore = 0.8;
+    body.data.planConnection.edges.push(alternative);
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(result.data.preferenceAssessment).toMatchObject({
+      status: "needs-attention",
+      headline: "依目前已標記資料，這個方案相對較適合",
+      details: expect.arrayContaining([
+        expect.stringContaining("本批候選中的無障礙資料評分較高"),
+      ]),
+    });
+  });
+
+  it("部分候選缺少無障礙分數時一律維持未知", async () => {
+    const body = responseBody();
+    const alternative = structuredClone(body.data.planConnection.edges[0]);
+    alternative.node.duration = 900;
+    alternative.node.walkTime = 360;
+    alternative.node.walkDistance = 420;
+    (alternative.node as { accessibilityScore: unknown }).accessibilityScore =
+      null;
+    body.data.planConnection.edges.push(alternative);
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(result.data.preferenceAssessment.headline).toBe(
+      "無障礙資料不足，這趟路仍屬未知",
+    );
   });
 
   it("一次捷運轉乘可勝過耗時且仍需長走的直達公車", async () => {
@@ -464,7 +526,7 @@ describe("OTP adapter", () => {
     expect(result.data.walkingMinutes).toBe(24);
     expect(result.data.preferenceAssessment).toMatchObject({
       status: "needs-attention",
-      headline: "少走偏好已套用，但仍需走約 24 分鐘",
+      headline: "無障礙資料不足，這趟路仍屬未知",
     });
     expect(result.data.preferenceAssessment.details[0]).toContain(
       "仍需步行約 24 分鐘",

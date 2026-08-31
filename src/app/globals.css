@@ -188,8 +188,6 @@ a:focus-visible,
   resize: vertical;
 }
 
-.field-hint { margin: 0.35rem 0 0; color: var(--asphalt-soft); font-size: 0.95rem; }
-
 .place-confirmation { margin-top: 0.75rem; }
 
 .intent-understood {

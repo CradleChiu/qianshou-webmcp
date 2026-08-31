@@ -499,6 +499,11 @@ type MappedItinerary = JourneyPlanCore & {
   accessibilityScore: number | null;
 };
 
+function normalizedAccessibilityScore(itinerary: OtpItinerary): number | null {
+  const score = readNumber(itinerary.accessibilityScore);
+  return score !== null && score >= 0 && score <= 1 ? score : null;
+}
+
 function mapItinerary(
   itinerary: OtpItinerary,
   preferences: JourneyPreferences,
@@ -543,8 +548,31 @@ function mapItinerary(
     transfers: Math.max(0, Math.round(transfers)),
     steps,
     firstTransitLeg: firstTransitLeg(legs),
-    accessibilityScore: readNumber(itinerary.accessibilityScore),
+    accessibilityScore: normalizedAccessibilityScore(itinerary),
   };
+}
+
+function hasComparativeAccessibilityEvidence(
+  plan: MappedItinerary,
+  candidates: MappedItinerary[],
+): boolean {
+  const selectedScore = plan.accessibilityScore;
+  if (
+    candidates.length < 2 ||
+    selectedScore === null ||
+    candidates.some((candidate) => candidate.accessibilityScore === null)
+  ) {
+    return false;
+  }
+
+  const scores = candidates.map(
+    (candidate) => candidate.accessibilityScore as number,
+  );
+  const highestScore = Math.max(...scores);
+  return (
+    selectedScore === highestScore &&
+    scores.some((score) => score < selectedScore)
+  );
 }
 
 function preferenceAssessment(
@@ -590,16 +618,23 @@ function preferenceAssessment(
   if (preferences.stepFree) {
     needsAttention = true;
     details.push(
-      "已避開資料中標記的階梯，但電梯、坡度與施工資訊可能缺漏，不能當成現場可通行保證。",
+      hasComparativeAccessibilityEvidence(plan, candidates)
+        ? "這只表示它在本批候選中的無障礙資料評分較高；未標記的階梯、坡度、電梯狀態與施工仍屬未知。"
+        : "規劃時已降低有階梯或不便通行標記路段的優先度，但未知路段仍可能被採用，不能視為無階梯路線。",
     );
   }
 
-  const headline =
-    preferences.minimizeWalking && plan.walkingMinutes >= 15
+  const hasComparativeEvidence = hasComparativeAccessibilityEvidence(
+    plan,
+    candidates,
+  );
+  const headline = preferences.stepFree
+    ? hasComparativeEvidence
+      ? "依目前已標記資料，這個方案相對較適合"
+      : "無障礙資料不足，這趟路仍屬未知"
+    : preferences.minimizeWalking && plan.walkingMinutes >= 15
       ? `少走偏好已套用，但仍需走約 ${plan.walkingMinutes} 分鐘`
-      : preferences.stepFree
-        ? "已避開已知階梯；其他路段仍要現場確認"
-        : "這個方案符合目前規劃原則";
+      : "這個方案符合目前規劃原則";
 
   return {
     status: needsAttention ? "needs-attention" : "met",
