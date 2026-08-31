@@ -387,8 +387,8 @@ function requestPreferences(preferences: JourneyPreferences) {
       ? {
           transit: {
             transfer: {
-              cost: 1200,
-              maximumAdditionalTransfers: 0,
+              cost: 600,
+              maximumAdditionalTransfers: 1,
             },
           },
         }
@@ -414,19 +414,38 @@ function itineraryMetric(
   return readNumber(itinerary[key]) ?? Number.POSITIVE_INFINITY;
 }
 
+function itineraryBurden(
+  itinerary: OtpItinerary,
+  preferences: JourneyPreferences,
+): number {
+  const duration = itineraryMetric(itinerary, "duration");
+  const walking = itineraryMetric(itinerary, "walkTime");
+  const transfers = itineraryMetric(itinerary, "numberOfTransfers");
+  if (![duration, walking, transfers].every(Number.isFinite)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const walkingPenalty = preferences.minimizeWalking ? walking * 1.5 : 0;
+  const transferPenalty = preferences.minimizeTransfers
+    ? transfers * 10 * 60
+    : 0;
+  return duration + walkingPenalty + transferPenalty;
+}
+
 function compareItineraries(
   left: OtpItinerary,
   right: OtpItinerary,
   preferences: JourneyPreferences,
 ): number {
-  const metrics: Array<"duration" | "walkTime" | "numberOfTransfers"> = [
-    ...(preferences.minimizeWalking ? (["walkTime"] as const) : []),
-    ...(preferences.minimizeTransfers
-      ? (["numberOfTransfers"] as const)
-      : []),
+  const burdenDifference =
+    itineraryBurden(left, preferences) - itineraryBurden(right, preferences);
+  if (burdenDifference !== 0) return burdenDifference;
+
+  const metrics: Array<"walkTime" | "numberOfTransfers" | "duration"> = [
+    "walkTime",
+    "numberOfTransfers",
     "duration",
   ];
-
   for (const metric of metrics) {
     const leftValue = itineraryMetric(left, metric);
     const rightValue = itineraryMetric(right, metric);
@@ -550,7 +569,7 @@ function preferenceAssessment(
       details.push(
         isLeastWalking
           ? `已優先選擇步行較少的方案，約走 ${plan.walkingMinutes} 分鐘。`
-          : `這個方案約走 ${plan.walkingMinutes} 分鐘。`,
+          : `為避免明顯繞路，這個方案約走 ${plan.walkingMinutes} 分鐘；另有步行較少但整體較費力的選項。`,
       );
     }
   }
@@ -559,7 +578,7 @@ function preferenceAssessment(
     details.push(
       plan.transfers === fewestTransfers
         ? `已優先減少換車，共轉乘 ${plan.transfers} 次。`
-        : `這個方案需轉乘 ${plan.transfers} 次，另有換車較少的選項。`,
+        : `為減少總時間與步行，這個方案需轉乘 ${plan.transfers} 次；另有換車較少但整體較費力的選項。`,
     );
   }
 
@@ -704,7 +723,7 @@ export class OtpClient {
               },
             },
             preferences: requestPreferences(request.preferences),
-            first: 5,
+            first: 10,
           },
         }),
         cache: "no-store",

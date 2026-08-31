@@ -4,22 +4,12 @@
     "timeZone": "Asia/Taipei",
     "osmTagMapping": "default"
   },
+  "osm": [
+    {
+      "source": "double-taipei.osm.pbf"
+    }
+  ],
   "transferRequests": [
-    {
-      "modes": "WALK"
-    },
-    {
-      "modes": "WALK",
-      "walk": {
-        "reluctance": 4
-      }
-    },
-    {
-      "modes": "WALK",
-      "wheelchairAccessibility": {
-        "enabled": true
-      }
-    },
     {
       "modes": "WALK",
       "walk": {

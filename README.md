@@ -20,6 +20,7 @@
 - Next.js、React、TypeScript 應用骨架。
 - 單一自然語言行程入口；使用者可以直接說「帶我去最近的便利商店」，缺少目前位置時系統只追問這一件事，並在下一輪保留已理解的目的地。
 - 固定採用少走路、少轉乘、避開資料中已知階梯的規劃原則，不要求目標使用者自行理解或勾選技術性偏好。
+- 路線以總時間、步行負擔與轉乘負擔綜合排序；少轉乘不是絕對禁止轉乘，若多一次捷運轉乘能明顯縮短時間與步行，系統會選擇整體較省力的方案。
 - 同機、loopback-only 的 Codex CLI 意圖服務：結構化輸出、60 秒逾時、同時最多 2 筆；關閉 shell、瀏覽器、外掛與多 Agent，採唯讀、ephemeral 執行。
 - 可朗讀的行程結果，以及逐項呈現官方／示範、資料時間、取得時間、新鮮度與限制。
 - 單一 `prepare_accessible_journey` WebMCP tool：使用者只需用自然語言說明起點、目的地與偏好，系統會自行完成地點解析、路線、精確到站與短時天氣；同名地點一定先交由使用者確認，不要求使用者知道工具名稱或候選 ID。
@@ -28,6 +29,7 @@
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。
 - TDX OAuth token 快取、失效 token 單次重新驗證，以及臺北／新北公車到站與臺北捷運 LiveBoard adapter。OTP 公車路段會以 `StopUID + RouteUID + Direction` 精確綁定；捷運會把月臺代碼、路線與目的地方向精確對到 TRTC 進站資料；純步行與其他運具不會混入附近公車。
 - TDX 雙北公車站＋OpenStreetMap Nominatim 地點搜尋；只在使用者送出時查詢，不做逐字自動完成。公共 Nominatim 查詢限制為每秒 1 次並快取 24 小時，同名候選會先顯示地址與來源供使用者選擇。
+- OTP street graph 只保留雙北 GTFS 站點外圍約 5 公里的 OSM；graph 約 96.6 MB，正式容器限制為 2 GiB Java heap／3 GiB 記憶體上限，避免全臺街道圖占用 VM 記憶體。
 - 中央氣象署雙北鄉鎮逐 3 小時預報 adapter，只整理目前與下一時段、涵蓋未來約 3–6 小時（資料快取 10 分鐘）。
 - OpenTripPlanner 2.9 `planConnection` adapter，傳遞少步行、少轉乘與 wheelchair preference；畫面會明確核對偏好是否真的滿足，步行仍長時主動警示，並提供最多三個可切換比較方案。
 - TDX 臺北捷運 GTFS、全臺 GTFS 中的臺北／新北公車資料，以及 Geofabrik OpenStreetMap 的下載、裁切、建圖與 Docker Compose 設定。

@@ -14,6 +14,25 @@ if (-not (Test-Path -LiteralPath (Join-Path $dataRoot "gtfs_tdx_double_taipei.zi
 if (-not (Test-Path -LiteralPath (Join-Path $dataRoot "taiwan-latest.osm.pbf"))) {
   throw "data/taiwan-latest.osm.pbf is missing. Run fetch-data.ps1 first."
 }
+$croppedOsm = Join-Path $dataRoot "double-taipei.osm.pbf"
+$cropSources = @(
+  (Join-Path $dataRoot "taiwan-latest.osm.pbf"),
+  (Join-Path $dataRoot "gtfs_tdx_double_taipei.zip"),
+  (Join-Path $dataRoot "gtfs_trtc.zip")
+)
+$needsCrop = -not (Test-Path -LiteralPath $croppedOsm)
+if (-not $needsCrop) {
+  $croppedAt = (Get-Item -LiteralPath $croppedOsm).LastWriteTimeUtc
+  $needsCrop = @($cropSources | Where-Object {
+    (Get-Item -LiteralPath $_).LastWriteTimeUtc -gt $croppedAt
+  }).Count -gt 0
+}
+if ($needsCrop) {
+  & (Join-Path $otpRoot "crop-osm.ps1") -Force
+  if ($LASTEXITCODE -ne 0) {
+    throw "OpenStreetMap crop failed with exit code $LASTEXITCODE."
+  }
+}
 
 docker run --rm `
   --mount "type=bind,source=$dataRoot,target=/var/opentripplanner" `

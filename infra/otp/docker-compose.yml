@@ -1,9 +1,13 @@
+name: journey-otp
+
 services:
   otp:
     image: opentripplanner/opentripplanner:2.9.0
     command: ["--load", "--serve"]
     environment:
-      JAVA_TOOL_OPTIONS: "-Xms1g -Xmx3g"
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx2g -XX:+UseStringDeduplication"
+    mem_limit: 3g
+    mem_reservation: 1g
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

@@ -143,9 +143,10 @@ describe("OTP adapter", () => {
         accessibility: { wheelchair: { enabled: true } },
         street: { walk: { reluctance: 4 } },
         transit: {
-          transfer: { cost: 1200, maximumAdditionalTransfers: 0 },
+          transfer: { cost: 600, maximumAdditionalTransfers: 1 },
         },
       },
+      first: 10,
     });
   });
 
@@ -301,6 +302,109 @@ describe("OTP adapter", () => {
         reason: expect.stringContaining("步行 10 分鐘"),
       }),
     ]);
+  });
+
+  it("一次捷運轉乘可勝過耗時且仍需長走的直達公車", async () => {
+    const body = responseBody();
+    const directBus = body.data.planConnection.edges[0].node;
+    directBus.duration = 3_360;
+    directBus.walkTime = 1_440;
+    directBus.walkDistance = 1_650;
+    directBus.numberOfTransfers = 0;
+    directBus.legs[1].mode = "BUS";
+    directBus.legs[1].route = {
+      gtfsId: "1:NWT307_0",
+      shortName: "307",
+      longName: "",
+    };
+
+    const subway = structuredClone(body.data.planConnection.edges[0]);
+    subway.node.duration = 2_400;
+    subway.node.walkTime = 480;
+    subway.node.walkDistance = 550;
+    subway.node.numberOfTransfers = 1;
+    subway.node.legs = [
+      {
+        mode: "WALK",
+        transitLeg: false,
+        duration: 240,
+        distance: 280,
+        from: { name: "Origin" },
+        to: { name: "新埔站" },
+      },
+      {
+        mode: "SUBWAY",
+        transitLeg: true,
+        duration: 780,
+        distance: 6_000,
+        headsign: "南港展覽館",
+        from: {
+          name: "新埔站",
+          stop: { gtfsId: "1:BL08", name: "新埔站" },
+        },
+        to: {
+          name: "西門站",
+          stop: { gtfsId: "1:BL11", name: "西門站" },
+        },
+        route: {
+          gtfsId: "1:BL_0",
+          shortName: "板南線",
+          longName: "板南線",
+        },
+        trip: { gtfsId: "1:BL-test-trip", directionId: "1" },
+      },
+      {
+        mode: "SUBWAY",
+        transitLeg: true,
+        duration: 900,
+        distance: 7_000,
+        headsign: "松山",
+        from: {
+          name: "西門站",
+          stop: { gtfsId: "1:G12", name: "西門站" },
+        },
+        to: {
+          name: "松山站",
+          stop: { gtfsId: "1:G19", name: "松山站" },
+        },
+        route: {
+          gtfsId: "1:G_0",
+          shortName: "松山新店線",
+          longName: "松山新店線",
+        },
+        trip: { gtfsId: "1:G-test-trip", directionId: "0" },
+      },
+      {
+        mode: "WALK",
+        transitLeg: false,
+        duration: 240,
+        distance: 270,
+        from: { name: "松山站" },
+        to: { name: "Destination" },
+      },
+    ];
+    body.data.planConnection.edges.push(subway);
+
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-31T04:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(request, origin, destination);
+
+    expect(result.data.estimatedMinutes).toBe(40);
+    expect(result.data.walkingMinutes).toBe(8);
+    expect(result.data.transfers).toBe(1);
+    expect(result.data.steps.map((step) => step.label)).toEqual([
+      "先走到捷運新埔站",
+      "搭乘板南線",
+      "轉乘松山新店線",
+      "下車後前往目的地",
+    ]);
+    expect(result.data.preferenceAssessment.details).toContain(
+      "為減少總時間與步行，這個方案需轉乘 1 次；另有換車較少但整體較費力的選項。",
+    );
   });
 
   it("少走偏好已套用但步行仍長時主動警示", async () => {
