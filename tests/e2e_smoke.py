@@ -339,7 +339,13 @@ def run_desktop_and_webmcp(browser):
         "只說目的地時，我們會詢問是否使用目前位置；也可以直接說地址、車站、店家或附近地標。",
         exact=True,
     ).count() == 0
-    assert page.get_by_text("少走路、少轉乘，優先避開有階梯標記的路段。", exact=True).is_visible()
+    assert page.locator(".planning-defaults").count() == 0
+    assert page.get_by_text(
+        "少走路、少轉乘，優先避開有階梯標記的路段。", exact=True
+    ).count() == 0
+    assert page.get_by_text(
+        "沒有標記的階梯、坡度、電梯與施工仍屬未知。", exact=True
+    ).count() == 0
     assert_no_duplicate_ids(page)
     page.wait_for_function(
         "Object.keys(window.__webmcpTools || {}).includes('prepare_accessible_journey')"

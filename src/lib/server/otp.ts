@@ -487,7 +487,7 @@ function parseItineraries(
     throw new ExternalServiceError(
       "OpenTripPlanner",
       "no-results",
-      "OpenTripPlanner 目前沒有找到 2 次轉乘以內的可用路線；可能已超過末班車，請調整起訖點或稍後再試。",
+      "OpenTripPlanner 目前沒有找到 2 次轉乘以內的完整路線；這不表示沿途沒有交通工具。",
     );
   }
   return [...itineraries].sort((left, right) =>

@@ -146,7 +146,7 @@ function failureMessage(service: string, error: unknown): string {
     }
     if (error.kind === "no-results") {
       return service === "路線服務"
-        ? "目前找不到可用路線；可能已超過末班車，請調整起訖點或稍後再試。"
+        ? "目前無法把可用交通工具接成完整路線；這個結果不表示現場沒有車。請查看出發地附近到站資訊，或稍後再試。"
         : `${service}目前找不到可用結果，請調整地點或稍後再試。`;
     }
     if (error.kind === "network") return `${service}暫時無法取得，請稍後再試。`;
@@ -675,7 +675,12 @@ export function createJourneyServices(
       });
       const arrivals =
         plan.status === "unavailable"
-          ? undefined
+          ? origin.city &&
+            (origin.kind === "transit-stop" || origin.kind === "station")
+            ? await services.getVehicleArrivals(
+                `${origin.city === "NewTaipei" ? "新北市" : "臺北市"}${origin.name}`,
+              )
+            : undefined
           : await services.getVehicleArrivals({
               stopName:
                 plan.data.firstTransitLeg?.stopName ?? `${origin.name}附近站牌`,

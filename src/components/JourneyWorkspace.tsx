@@ -897,20 +897,6 @@ export function JourneyWorkspace() {
               {renderPlaceConfirmation("origin")}
               {renderPlaceConfirmation("destination")}
 
-              <div
-                className="planning-defaults"
-                role="note"
-                aria-label="固定的行程規劃原則"
-              >
-                <p className="planning-defaults-label">我們會這樣安排</p>
-                <p className="planning-defaults-priority">
-                  少走路、少轉乘，優先避開有階梯標記的路段。
-                </p>
-                <p className="planning-defaults-limit">
-                  沒有標記的階梯、坡度、電梯與施工仍屬未知。
-                </p>
-              </div>
-
               {error ? (
                 <p id="form-error" className="form-error" role="alert">
                   {error}
@@ -956,7 +942,7 @@ export function JourneyWorkspace() {
                 {results.plan ? (
                   results.plan.status === "unavailable" ? (
                     <div className="journey-unavailable" role="status">
-                      <h3>暫時無法規劃真實路線</h3>
+                      <h3>暫時無法組成完整路線</h3>
                       <p>{results.plan.limitations[0]}</p>
                     </div>
                   ) : (

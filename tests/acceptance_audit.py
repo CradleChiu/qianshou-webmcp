@@ -210,9 +210,7 @@ def run_desktop(browser, results):
         "focus": active_control(page),
         "intentCalls": len([item for item in captured if item.get("action") == "interpret"]),
         "prepareCalls": len([item for item in captured if item.get("action") == "prepare"]),
-        "fixedPrinciple": page.get_by_text(
-            "少走路、少轉乘，優先避開有階梯標記的路段。", exact=True
-        ).is_visible(),
+        "planningDefaultsRemoved": page.locator(".planning-defaults").count() == 0,
         "integratedSource": page.locator(
             ".journey-summary .source-kind--integrated"
         ).is_visible(),
@@ -221,10 +219,10 @@ def run_desktop(browser, results):
         success["focus"]["id"] == "result-title"
         and success["intentCalls"] == 1
         and success["prepareCalls"] == 1
-        and success["fixedPrinciple"]
+        and success["planningDefaultsRemoved"]
         and success["integratedSource"]
     )
-    add(results, "成功結果、固定原則與焦點", "PASS" if success_ok else "FAIL", success)
+    add(results, "成功結果與焦點", "PASS" if success_ok else "FAIL", success)
 
     contrasts = contrast_results(page)
     failing_contrasts = [

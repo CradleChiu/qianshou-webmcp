@@ -360,7 +360,7 @@ describe("journey service orchestration", () => {
     );
   });
 
-  it("OTP 合法空路線回應會保留查無班次原因", async () => {
+  it("OTP 合法空路線回應不把規劃失敗誤判成沒有車", async () => {
     const fetcher: ServerFetch = vi.fn(async () =>
       Response.json({ data: { planConnection: { edges: [] } } }),
     );
@@ -380,7 +380,8 @@ describe("journey service orchestration", () => {
     });
 
     expect(result.status).toBe("unavailable");
-    expect(result.limitations[0]).toContain("可能已超過末班車");
+    expect(result.limitations[0]).toContain("不表示現場沒有車");
+    expect(result.limitations[0]).not.toContain("末班車");
 
     const coordinateResult = await services.planAccessibleTrip({
       origin: "24.985000,121.565000",
@@ -395,6 +396,58 @@ describe("journey service orchestration", () => {
       "從你指定的起點到你指定的目的地：目前無法規劃",
     );
     expect(coordinateResult.data.summary).not.toContain("24.985000");
+  });
+
+  it("完整路線失敗時仍查詢已確認起點的官方附近到站", async () => {
+    const fetcher: ServerFetch = vi.fn(async (input) => {
+      const url = input.toString();
+      if (url.includes("openid-connect/token")) {
+        return Response.json({ access_token: "access-token", expires_in: 3_600 });
+      }
+      if (url.includes("EstimatedTimeOfArrival/City/Taipei")) {
+        return Response.json([
+          {
+            StopUID: "TPE1000",
+            StopName: { Zh_tw: "臺北車站" },
+            RouteUID: "TPE0001",
+            RouteName: { Zh_tw: "307" },
+            Direction: 0,
+            EstimateTime: 420,
+            SrcUpdateTime: "2026-09-01T06:53:30+08:00",
+          },
+        ]);
+      }
+      return Response.json({ data: { planConnection: { edges: [] } } });
+    });
+    const services = createJourneyServices({
+      env: {
+        OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1",
+        TDX_CLIENT_ID: "configured",
+        TDX_CLIENT_SECRET: "configured",
+      },
+      fetcher,
+      now: () => new Date("2026-09-01T06:54:00+08:00"),
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "臺北車站",
+      destination: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(result.state).toBe("unavailable");
+    expect(result.plan?.limitations[0]).toContain("不表示現場沒有車");
+    expect(result.arrivals?.source.kind).toBe("official");
+    expect(result.arrivals?.data.matchType).toBe("stop-keyword");
+    expect(result.arrivals?.data.arrivals[0]).toMatchObject({
+      stopName: "臺北車站",
+      routeName: "307",
+      minutes: 7,
+    });
   });
 
   it("未知路線地點不呼叫 OTP", async () => {

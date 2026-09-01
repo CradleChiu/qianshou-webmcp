@@ -710,7 +710,7 @@ describe("OTP adapter", () => {
       client.planAccessibleTrip(request, origin, destination),
     ).rejects.toMatchObject({
       kind: "no-results",
-      message: expect.stringContaining("可能已超過末班車"),
+      message: expect.stringContaining("不表示沿途沒有交通工具"),
     });
   });
 });
