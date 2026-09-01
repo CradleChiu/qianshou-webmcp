@@ -69,9 +69,42 @@ type OtpGraphqlResponse = {
   errors?: Array<{ message?: unknown }>;
 };
 
+type OtpTransferStop = {
+  gtfsId?: unknown;
+  name?: unknown;
+  lat?: unknown;
+  lon?: unknown;
+  routes?: unknown;
+};
+
+type OtpTransferPattern = {
+  stops?: unknown;
+};
+
+type OtpTransferRoute = {
+  patterns?: unknown;
+};
+
+type OtpTransferHubResponse = {
+  data?: {
+    stopsByRadius?: {
+      edges?: Array<{
+        node?: {
+          distance?: unknown;
+          stop?: OtpTransferStop | null;
+        } | null;
+      } | null> | null;
+    } | null;
+  } | null;
+  errors?: Array<{ message?: unknown }>;
+};
+
 const OTP_DOCUMENTATION_URL =
   "https://docs.opentripplanner.org/en/latest/apis/GTFS-GraphQL-API/";
 const MAX_TRANSFERS = 2;
+const TRANSFER_BUFFER_MS = 2 * 60 * 1_000;
+const TRANSFER_HUB_RADIUS_METERS = 350;
+const MAX_TRANSFER_HUBS = 4;
 
 export const OTP_PLAN_QUERY = `
   query PlanAccessibleTrip(
@@ -109,6 +142,37 @@ export const OTP_PLAN_QUERY = `
             to { name stop { gtfsId name } }
             route { gtfsId shortName longName }
             trip { gtfsId directionId }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const OTP_TRANSFER_HUB_QUERY = `
+  query DiscoverTransferHubs(
+    $latitude: Float!
+    $longitude: Float!
+    $radius: Int!
+    $first: Int!
+  ) {
+    stopsByRadius(
+      lat: $latitude
+      lon: $longitude
+      radius: $radius
+      first: $first
+    ) {
+      edges {
+        node {
+          distance
+          stop {
+            gtfsId
+            name
+            routes {
+              patterns {
+                stops { gtfsId name lat lon }
+              }
+            }
           }
         }
       }
@@ -408,6 +472,114 @@ function locationInput(place: ResolvedOtpPlace) {
   };
 }
 
+function normalizedTransferHubName(value: string): string {
+  return value
+    .replaceAll("台", "臺")
+    .replace(/[（(][^）)]*[）)]/gu, "")
+    .replace(/\s+/gu, "")
+    .toLocaleLowerCase("zh-Hant-TW");
+}
+
+function isTransferHubName(value: string): boolean {
+  return /捷運|車站|轉運站|高鐵/u.test(value);
+}
+
+function parseTransferHubs(
+  response: OtpTransferHubResponse,
+): ResolvedOtpPlace[] {
+  if (response.errors?.length) {
+    throw new ExternalServiceError(
+      "OpenTripPlanner",
+      "invalid-response",
+      "OpenTripPlanner 無法查詢附近路線站序。",
+    );
+  }
+  const edges = response.data?.stopsByRadius?.edges;
+  if (!Array.isArray(edges)) return [];
+
+  const hubs: Array<
+    ResolvedOtpPlace & { accessDistance: number; stopsAfterOrigin: number }
+  > = [];
+  for (const edge of edges) {
+    const nearbyStop = edge?.node?.stop;
+    const nearbyStopId = readText(nearbyStop?.gtfsId);
+    const nearbyStopName = readText(nearbyStop?.name);
+    const routes = Array.isArray(nearbyStop?.routes)
+      ? (nearbyStop.routes as OtpTransferRoute[])
+      : [];
+    if (!nearbyStopId || !nearbyStopName) continue;
+
+    for (const route of routes) {
+      const patterns = Array.isArray(route.patterns)
+        ? (route.patterns as OtpTransferPattern[])
+        : [];
+      for (const pattern of patterns) {
+        const stops = Array.isArray(pattern.stops)
+          ? (pattern.stops as OtpTransferStop[])
+          : [];
+        let originIndex = stops.findIndex(
+          (stop) => readText(stop.gtfsId) === nearbyStopId,
+        );
+        if (originIndex < 0) {
+          const normalizedNearbyName =
+            normalizedTransferHubName(nearbyStopName);
+          originIndex = stops.findIndex((stop) => {
+            const name = readText(stop.name);
+            return (
+              name !== null &&
+              normalizedTransferHubName(name) === normalizedNearbyName
+            );
+          });
+        }
+        if (originIndex < 0) continue;
+
+        stops.slice(originIndex + 1).forEach((stop, downstreamIndex) => {
+          const name = readText(stop.name);
+          const latitude = readNumber(stop.lat);
+          const longitude = readNumber(stop.lon);
+          if (
+            !name ||
+            latitude === null ||
+            longitude === null ||
+            !isTransferHubName(name)
+          ) {
+            return;
+          }
+          hubs.push({
+            canonicalName: name,
+            latitude,
+            longitude,
+            coordinateSource: "tdx-gtfs-station",
+            accessDistance: readNumber(edge?.node?.distance) ?? 0,
+            stopsAfterOrigin: downstreamIndex + 1,
+          });
+        });
+      }
+    }
+  }
+
+  return hubs
+    .sort(
+      (left, right) =>
+        left.accessDistance - right.accessDistance ||
+        left.stopsAfterOrigin - right.stopsAfterOrigin,
+    )
+    .filter((hub, index, all) => {
+      const name = normalizedTransferHubName(hub.canonicalName);
+      return (
+        all.findIndex(
+          (candidate) =>
+            normalizedTransferHubName(candidate.canonicalName) === name,
+        ) === index
+      );
+    })
+    .slice(0, MAX_TRANSFER_HUBS)
+    .map(
+      ({ accessDistance: _accessDistance, stopsAfterOrigin: _stops, ...hub }) =>
+        hub,
+    );
+}
+
 function itineraryMetric(
   itinerary: OtpItinerary,
   key: "duration" | "walkTime" | "numberOfTransfers",
@@ -497,6 +669,8 @@ function parseItineraries(
 
 type MappedItinerary = JourneyPlanCore & {
   accessibilityScore: number | null;
+  startAt: string | null;
+  endAt: string | null;
 };
 
 function normalizedAccessibilityScore(itinerary: OtpItinerary): number | null {
@@ -549,7 +723,71 @@ function mapItinerary(
     steps,
     firstTransitLeg: firstTransitLeg(legs),
     accessibilityScore: normalizedAccessibilityScore(itinerary),
+    startAt: readText(itinerary.start),
+    endAt: readText(itinerary.end),
   };
+}
+
+function combineItineraries(
+  first: MappedItinerary,
+  second: MappedItinerary,
+  origin: ResolvedOtpPlace,
+  destination: ResolvedOtpPlace,
+): MappedItinerary | null {
+  const startAt = first.startAt ? Date.parse(first.startAt) : Number.NaN;
+  const endAt = second.endAt ? Date.parse(second.endAt) : Number.NaN;
+  if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+    return null;
+  }
+
+  const boundaryTransfer =
+    first.firstTransitLeg && second.firstTransitLeg ? 1 : 0;
+  const transfers = first.transfers + second.transfers + boundaryTransfer;
+  if (transfers > MAX_TRANSFERS) return null;
+
+  return {
+    summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
+    estimatedMinutes: Math.max(1, Math.ceil((endAt - startAt) / 60_000)),
+    walkingMinutes: first.walkingMinutes + second.walkingMinutes,
+    transfers,
+    steps: [...first.steps, ...second.steps],
+    firstTransitLeg: first.firstTransitLeg ?? second.firstTransitLeg,
+    accessibilityScore:
+      first.accessibilityScore === null || second.accessibilityScore === null
+        ? null
+        : Math.min(first.accessibilityScore, second.accessibilityScore),
+    startAt: first.startAt,
+    endAt: second.endAt,
+  };
+}
+
+function mappedItineraryBurden(
+  itinerary: MappedItinerary,
+  preferences: JourneyPreferences,
+): number {
+  const duration = itinerary.estimatedMinutes * 60;
+  const walking = itinerary.walkingMinutes * 60;
+  const walkingPenalty = preferences.minimizeWalking ? walking * 1.5 : 0;
+  const transferPenalty = preferences.minimizeTransfers
+    ? itinerary.transfers * 10 * 60
+    : 0;
+  return duration + walkingPenalty + transferPenalty;
+}
+
+function compareMappedItineraries(
+  left: MappedItinerary,
+  right: MappedItinerary,
+  preferences: JourneyPreferences,
+): number {
+  const burdenDifference =
+    mappedItineraryBurden(left, preferences) -
+    mappedItineraryBurden(right, preferences);
+  if (burdenDifference !== 0) return burdenDifference;
+  return (
+    left.walkingMinutes - right.walkingMinutes ||
+    left.transfers - right.transfers ||
+    left.estimatedMinutes - right.estimatedMinutes
+  );
 }
 
 function hasComparativeAccessibilityEvidence(
@@ -727,12 +965,12 @@ export class OtpClient {
     this.now = dependencies.now ?? (() => new Date());
   }
 
-  async planAccessibleTrip(
+  private async mappedCandidates(
     request: JourneyRequest,
     origin: ResolvedOtpPlace,
     destination: ResolvedOtpPlace,
-  ): Promise<ServiceEnvelope<JourneyPlan>> {
-    const requestedAt = this.now();
+    departureAt: Date,
+  ): Promise<MappedItinerary[]> {
     const { data } = await fetchJson<OtpGraphqlResponse>(
       "OpenTripPlanner",
       this.fetcher,
@@ -750,7 +988,7 @@ export class OtpClient {
           variables: {
             origin: locationInput(origin),
             destination: locationInput(destination),
-            dateTime: { earliestDeparture: requestedAt.toISOString() },
+            dateTime: { earliestDeparture: departureAt.toISOString() },
             modes: {
               direct: ["WALK"],
               transit: {
@@ -771,8 +1009,7 @@ export class OtpClient {
       this.config.timeoutMs,
     );
 
-    const itineraries = parseItineraries(data, request.preferences);
-    const candidates = itineraries
+    return parseItineraries(data, request.preferences)
       .map((itinerary) =>
         mapItinerary(
           itinerary,
@@ -782,6 +1019,145 @@ export class OtpClient {
         ),
       )
       .filter((plan): plan is MappedItinerary => Boolean(plan));
+  }
+
+  private async discoverTransferHubs(
+    origin: ResolvedOtpPlace,
+  ): Promise<ResolvedOtpPlace[]> {
+    const { data } = await fetchJson<OtpTransferHubResponse>(
+      "OpenTripPlanner",
+      this.fetcher,
+      this.config.graphqlUrl,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept-language": "zh-TW",
+          otptimeout: String(this.config.timeoutMs),
+        },
+        body: JSON.stringify({
+          operationName: "DiscoverTransferHubs",
+          query: OTP_TRANSFER_HUB_QUERY,
+          variables: {
+            latitude: origin.latitude,
+            longitude: origin.longitude,
+            radius: TRANSFER_HUB_RADIUS_METERS,
+            first: 20,
+          },
+        }),
+        cache: "no-store",
+      },
+      this.config.timeoutMs,
+    );
+    return parseTransferHubs(data);
+  }
+
+  private async planViaTransferHubs(
+    request: JourneyRequest,
+    origin: ResolvedOtpPlace,
+    destination: ResolvedOtpPlace,
+    requestedAt: Date,
+    transferHubs: ResolvedOtpPlace[],
+  ): Promise<{ plan: MappedItinerary; hubName: string } | null> {
+    const attempts = await Promise.all(
+      transferHubs.slice(0, 4).map(async (hub) => {
+        try {
+          const firstCandidates = await this.mappedCandidates(
+            request,
+            origin,
+            hub,
+            requestedAt,
+          );
+          const first = firstCandidates[0];
+          const firstArrival = first?.endAt
+            ? Date.parse(first.endAt)
+            : Number.NaN;
+          if (!first || !Number.isFinite(firstArrival)) return null;
+
+          const secondCandidates = await this.mappedCandidates(
+            request,
+            hub,
+            destination,
+            new Date(firstArrival + TRANSFER_BUFFER_MS),
+          );
+          const second = secondCandidates[0];
+          if (!second) return null;
+
+          const combined = combineItineraries(
+            first,
+            second,
+            origin,
+            destination,
+          );
+          return combined
+            ? { plan: combined, hubName: hub.canonicalName }
+            : null;
+        } catch (error) {
+          if (
+            error instanceof ExternalServiceError &&
+            error.kind === "no-results"
+          ) {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+    return (
+      attempts
+        .filter(
+          (
+            attempt,
+          ): attempt is { plan: MappedItinerary; hubName: string } =>
+            Boolean(attempt),
+        )
+        .sort((left, right) =>
+          compareMappedItineraries(
+            left.plan,
+            right.plan,
+            request.preferences,
+          ),
+        )[0] ?? null
+    );
+  }
+
+  async planAccessibleTrip(
+    request: JourneyRequest,
+    origin: ResolvedOtpPlace,
+    destination: ResolvedOtpPlace,
+  ): Promise<ServiceEnvelope<JourneyPlan>> {
+    const requestedAt = this.now();
+    let candidates: MappedItinerary[];
+    let transferHubName: string | null = null;
+    try {
+      candidates = await this.mappedCandidates(
+        request,
+        origin,
+        destination,
+        requestedAt,
+      );
+    } catch (error) {
+      if (!(error instanceof ExternalServiceError) || error.kind !== "no-results") {
+        throw error;
+      }
+      let transferHubs: ResolvedOtpPlace[] = [];
+      try {
+        transferHubs = await this.discoverTransferHubs(origin);
+      } catch {
+        throw error;
+      }
+      const fallback = await this.planViaTransferHubs(
+        request,
+        origin,
+        destination,
+        requestedAt,
+        transferHubs,
+      );
+      if (!fallback) throw error;
+      candidates = [fallback.plan];
+      transferHubName = fallback.hubName;
+    }
+
     const selected = candidates[0];
 
     if (!selected) {
@@ -806,6 +1182,9 @@ export class OtpClient {
       },
       limitations: [
         "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
+        ...(transferHubName
+          ? [`原始整段查詢無法銜接運具；本方案改由${transferHubName}分段規劃，並保留 2 分鐘轉乘緩衝。`]
+          : []),
         "靜態 GTFS 不含臨時停駛、延誤與現場施工；出發前仍須確認營運公告。",
         request.preferences.stepFree
           ? "避開階梯的要求只依 GTFS／OpenStreetMap 已標記資料計算；未知或缺漏欄位不能視為可通行保證。"

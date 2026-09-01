@@ -697,6 +697,207 @@ describe("OTP adapter", () => {
     ).rejects.toThrow("GraphQL 回傳錯誤");
   });
 
+  it("整段跨運具失敗時會經資料來源提供的轉乘站分段，並維持時間連續", async () => {
+    const empty = { data: { planConnection: { edges: [] } } };
+    const transferHubs = {
+      data: {
+        stopsByRadius: {
+          edges: [
+            {
+              node: {
+                distance: 0,
+                stop: {
+                  gtfsId: "1:NWT199072",
+                  name: "烏來",
+                  routes: [
+                    {
+                      patterns: [
+                        {
+                          stops: [
+                            {
+                              gtfsId: "1:NWT199072",
+                              name: "烏來",
+                              lat: 24.866576,
+                              lon: 121.5511543,
+                            },
+                            {
+                              gtfsId: "1:NWT121991",
+                              name: "捷運新店區公所站(北新)",
+                              lat: 24.96763873691205,
+                              lon: 121.54161613426882,
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const firstSegment = responseBody();
+    firstSegment.data.planConnection.edges[0].node = {
+      start: "2026-09-01T10:00:00+08:00",
+      end: "2026-09-01T10:20:00+08:00",
+      duration: 1_200,
+      walkTime: 0,
+      walkDistance: 0,
+      numberOfTransfers: 0,
+      accessibilityScore: 0.6,
+      legs: [
+        {
+          mode: "BUS",
+          transitLeg: true,
+          duration: 1_200,
+          distance: 14_000,
+          headsign: "臺北",
+          from: {
+            name: "烏來",
+            stop: { gtfsId: "1:NWT191919", name: "烏來" },
+          },
+          to: {
+            name: "捷運新店區公所站(北新)",
+            stop: { gtfsId: "1:NWT191920", name: "捷運新店區公所站(北新)" },
+          },
+          route: { gtfsId: "1:NWT849_1", shortName: "849", longName: "" },
+          trip: { gtfsId: "1:849-trip", directionId: "1" },
+        },
+      ],
+    };
+    const secondSegment = responseBody();
+    secondSegment.data.planConnection.edges[0].node = {
+      start: "2026-09-01T10:24:00+08:00",
+      end: "2026-09-01T11:10:00+08:00",
+      duration: 2_760,
+      walkTime: 300,
+      walkDistance: 350,
+      numberOfTransfers: 1,
+      accessibilityScore: 0.8,
+      legs: [
+        {
+          mode: "WALK",
+          transitLeg: false,
+          duration: 180,
+          distance: 180,
+          from: { name: "Origin" },
+          to: { name: "新店區公所-上行月臺(松山新店線)" },
+        },
+        {
+          mode: "SUBWAY",
+          transitLeg: true,
+          duration: 1_200,
+          distance: 10_000,
+          headsign: "松山",
+          from: {
+            name: "新店區公所-上行月臺(松山新店線)",
+            stop: { gtfsId: "2:G02", name: "新店區公所站" },
+          },
+          to: {
+            name: "西門-上行月臺(松山新店線)",
+            stop: { gtfsId: "2:G12", name: "西門站" },
+          },
+          route: { gtfsId: "2:G_0", shortName: "松山新店線", longName: "" },
+          trip: { gtfsId: "2:G-trip", directionId: "0" },
+        },
+        {
+          mode: "SUBWAY",
+          transitLeg: true,
+          duration: 1_260,
+          distance: 8_000,
+          headsign: "頂埔",
+          from: {
+            name: "西門-下行月臺(板南線)",
+            stop: { gtfsId: "2:BL11", name: "西門站" },
+          },
+          to: {
+            name: "新埔-下行月臺(板南線)",
+            stop: { gtfsId: "2:BL08", name: "新埔站" },
+          },
+          route: { gtfsId: "2:BL_0", shortName: "板南線", longName: "" },
+          trip: { gtfsId: "2:BL-trip", directionId: "0" },
+        },
+        {
+          mode: "WALK",
+          transitLeg: false,
+          duration: 120,
+          distance: 170,
+          from: { name: "新埔-下行月臺(板南線)" },
+          to: { name: "Destination" },
+        },
+      ],
+    };
+    const responses = [empty, transferHubs, firstSegment, secondSegment];
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetcher: ServerFetch = vi.fn(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json(responses.shift() ?? empty);
+    });
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-09-01T01:30:00.000Z") },
+    );
+    const wulai: ResolvedOtpPlace = {
+      canonicalName: "烏來",
+      latitude: 24.866576,
+      longitude: 121.5511543,
+      coordinateSource: "place-search",
+    };
+    const xinpu: ResolvedOtpPlace = {
+      canonicalName: "捷運新埔站(2號出口)",
+      latitude: 25.02237,
+      longitude: 121.46779,
+      coordinateSource: "place-search",
+    };
+
+    const result = await client.planAccessibleTrip(
+      {
+        ...request,
+        origin: wulai.canonicalName,
+        destination: xinpu.canonicalName,
+      },
+      wulai,
+      xinpu,
+    );
+
+    expect(result.data.summary).toBe(
+      "從烏來到捷運新埔站（2號出口）：建議行程",
+    );
+    expect(result.data.estimatedMinutes).toBe(70);
+    expect(result.data.walkingMinutes).toBe(5);
+    expect(result.data.transfers).toBe(2);
+    expect(result.data.firstTransitLeg).toMatchObject({
+      mode: "BUS",
+      routeName: "849",
+      stopName: "烏來",
+    });
+    expect(result.data.steps.map((step) => step.label)).toEqual([
+      "搭乘849",
+      "先走到捷運新店區公所站",
+      "搭乘松山新店線",
+      "轉乘板南線",
+      "下車後前往目的地",
+    ]);
+    expect(result.limitations).toContain(
+      "原始整段查詢無法銜接運具；本方案改由捷運新店區公所站(北新)分段規劃，並保留 2 分鐘轉乘緩衝。",
+    );
+    expect(bodies[1]).toMatchObject({
+      operationName: "DiscoverTransferHubs",
+      variables: {
+        latitude: 24.866576,
+        longitude: 121.5511543,
+        radius: 350,
+        first: 20,
+      },
+    });
+    expect(
+      (bodies[3]?.variables as { dateTime: { earliestDeparture: string } })
+        .dateTime.earliestDeparture,
+    ).toBe("2026-09-01T02:22:00.000Z");
+  });
+
   it("合法空路線回應會標示查無班次，而不是資料格式錯誤", async () => {
     const fetcher: ServerFetch = vi.fn(async () =>
       Response.json({ data: { planConnection: { edges: [] } } }),
