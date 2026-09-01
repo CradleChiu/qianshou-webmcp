@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  getVehicleArrivals,
-  getWeatherSafetyBrief,
-  planAccessibleTrip,
-} from "./journey";
+import { normalizeJourneyRequest } from "./journey";
 
-describe("journey domain services", () => {
-  it("建立帶有明確限制的少步行行程", async () => {
-    const result = await planAccessibleTrip({
-      origin: "台北車站",
-      destination: "台大醫院",
+describe("journey domain validation", () => {
+  it("只正規化使用者輸入，不建立固定行程結果", () => {
+    const result = normalizeJourneyRequest({
+      origin: " 台北車站 ",
+      destination: " 台大醫院 ",
+      originLabel: " 北車 ",
       preferences: {
         minimizeWalking: true,
         minimizeTransfers: true,
@@ -17,23 +14,28 @@ describe("journey domain services", () => {
       },
     });
 
-    expect(result.status).toBe("partial");
-    expect(result.data.walkingMinutes).toBe(7);
-    expect(result.data.transfers).toBe(0);
-    expect(result.limitations).toContain(
-      "目前是開發階段情境資料，不能用於實際出行。",
-    );
+    expect(result.origin).toBe("台北車站");
+    expect(result.destination).toBe("台大醫院");
+    expect(result.originLabel).toBe("北車");
   });
 
-  it("拒絕空白或過短的地點", async () => {
-    await expect(
-      getVehicleArrivals(" "),
-    ).rejects.toThrow("站牌至少需要兩個字。");
+  it("拒絕空白或過短的地點", () => {
+    expect(() =>
+      normalizeJourneyRequest({
+        origin: " ",
+        destination: "台大醫院",
+        preferences: {
+          minimizeWalking: true,
+          minimizeTransfers: true,
+          stepFree: true,
+        },
+      }),
+    ).toThrow("起點至少需要兩個字。");
   });
 
-  it("拒絕相同的起點與目的地", async () => {
-    await expect(
-      planAccessibleTrip({
+  it("拒絕相同的起點與目的地", () => {
+    expect(() =>
+      normalizeJourneyRequest({
         origin: "台北車站",
         destination: "台北車站",
         preferences: {
@@ -42,13 +44,6 @@ describe("journey domain services", () => {
           stepFree: true,
         },
       }),
-    ).rejects.toThrow("起點和目的地相同");
-  });
-
-  it("天氣資料不偽裝成即時官方資料", async () => {
-    const result = await getWeatherSafetyBrief("台北市中正區");
-
-    expect(result.source.kind).toBe("development-fixture");
-    expect(result.limitations[0]).toContain("尚未連接中央氣象署");
+    ).toThrow("起點和目的地相同");
   });
 });

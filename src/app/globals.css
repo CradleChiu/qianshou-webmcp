@@ -351,18 +351,6 @@ a:focus-visible,
   gap: 0.65rem;
 }
 
-.result-demo-label {
-  display: grid;
-  margin: 0 0 1.25rem;
-  padding: 0.85rem 1rem;
-  border: 2px solid var(--rust);
-  background: #fff1ee;
-  color: #752519;
-  line-height: 1.45;
-}
-
-.result-demo-label strong { font-weight: 950; }
-
 .journey-unavailable {
   padding: 1.2rem;
   border: 2px solid var(--rust);
@@ -575,7 +563,6 @@ a:focus-visible,
 
 .source-kind--official { background: var(--harbor); color: var(--paper); }
 .source-kind--integrated { background: #e0efed; color: var(--harbor); }
-.source-kind--development-fixture { background: var(--tactile); color: var(--asphalt); }
 
 .source-details {
   margin-top: 1.5rem;

@@ -1,6 +1,4 @@
 import {
-  getVehicleArrivals as getFixtureVehicleArrivals,
-  getWeatherSafetyBrief as getFixtureWeatherSafetyBrief,
   normalizeJourneyRequest,
   type JourneyPreparation,
   type JourneyPreparationRequest,
@@ -20,7 +18,6 @@ import {
   resolveOtpPlace,
   resolveDoubleTaipeiTransitPlace,
   resolveShortTermWeatherPlace,
-  searchKnownPlaces,
 } from "@/lib/server/place-resolver";
 import { TdxClient, type TdxConfig } from "@/lib/server/tdx";
 import { OtpClient, type OtpConfig } from "@/lib/server/otp";
@@ -210,7 +207,6 @@ export function createJourneyServices(
       if (normalizedQuery.length < 2) throw new Error("地點至少需要兩個字。");
       if (normalizedQuery.length > 80) throw new Error("地點不能超過 80 個字。");
 
-      const knownCandidates = searchKnownPlaces(normalizedQuery);
       const coordinate = resolveOtpPlace(normalizedQuery);
       const userCoordinate =
         coordinate?.coordinateSource === "user-coordinate" ? coordinate : null;
@@ -223,29 +219,26 @@ export function createJourneyServices(
               latitude: userCoordinate.latitude,
               longitude: userCoordinate.longitude,
               kind: "address",
-              source: "known",
+              source: "user",
               city: null,
               stopUid: null,
             },
           ]
         : [];
-      if (knownCandidates.length || coordinateCandidates.length) {
-        const candidates = knownCandidates.length
-          ? knownCandidates
-          : coordinateCandidates;
+      if (coordinateCandidates.length) {
         const retrievedAt = now().toISOString();
         return {
           status: "ok",
           generatedAt: retrievedAt,
           source: {
-            name: "已確認的常用地點",
+            name: "使用者提供的位置",
             observedAt: null,
             retrievedAt,
             kind: "integrated",
             freshness: "unknown",
           },
           limitations: [],
-          data: { query: normalizedQuery, candidates },
+          data: { query: normalizedQuery, candidates: coordinateCandidates },
         };
       }
 
@@ -486,7 +479,19 @@ export function createJourneyServices(
         }
       }
 
-      if (!tdx) return getFixtureVehicleArrivals(request.stopName);
+      if (!tdx) {
+        return unavailableEnvelope(
+          {
+            matchType: "stop-keyword",
+            requestedLeg: null,
+            arrivals: [],
+          },
+          "TDX 運輸資料流通服務",
+          "https://tdx.transportdata.tw/api-service/swagger",
+          "尚未設定 TDX 金鑰，無法查詢官方到站資料。",
+          now(),
+        );
+      }
       const place = resolveDoubleTaipeiTransitPlace(request.stopName);
       if (!place) {
         return unavailableEnvelope(
@@ -522,7 +527,20 @@ export function createJourneyServices(
     async getWeatherSafetyBrief(
       location: string,
     ): Promise<ServiceEnvelope<WeatherBrief>> {
-      if (!cwa) return getFixtureWeatherSafetyBrief(location);
+      if (!cwa) {
+        return unavailableEnvelope(
+          {
+            location,
+            forecastWindow: "未來 3–6 小時",
+            headline: "暫時無法取得天氣",
+            advice: "目前未連接中央氣象署資料，請稍後再試。",
+          },
+          "中央氣象署開放資料平臺",
+          "https://opendata.cwa.gov.tw/dist/opendata-swagger.html",
+          "尚未設定中央氣象署 API 金鑰，無法查詢官方短時預報。",
+          now(),
+        );
+      }
       const place = resolveShortTermWeatherPlace(location);
       if (!place) {
         return unavailableEnvelope(

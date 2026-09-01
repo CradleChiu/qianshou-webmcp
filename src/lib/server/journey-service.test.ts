@@ -59,13 +59,65 @@ function ambiguousPlaces() {
   ];
 }
 
+function nominatimPlaces(input: RequestInfo | URL) {
+  const query = new URL(input.toString()).searchParams.get("q") ?? "";
+  if (query.includes("臺大醫院")) {
+    return [
+      {
+        place_id: 201,
+        lat: "25.041399",
+        lon: "121.51602",
+        name: "臺大醫院",
+        display_name: "臺大醫院, 中正區, 臺北市, 臺灣",
+        category: "amenity",
+        type: "hospital",
+        address: { city: "臺北市" },
+      },
+    ];
+  }
+  if (query.includes("臺北市政府")) {
+    return [
+      {
+        place_id: 202,
+        lat: "25.041135",
+        lon: "121.565685",
+        name: "臺北市政府",
+        display_name: "臺北市政府, 信義區, 臺北市, 臺灣",
+        category: "office",
+        type: "government",
+        address: { city: "臺北市" },
+      },
+    ];
+  }
+  if (query.includes("臺北車站")) {
+    return [
+      {
+        place_id: 203,
+        lat: "25.04631",
+        lon: "121.517415",
+        name: "臺北車站",
+        display_name: "臺北車站, 中正區, 臺北市, 臺灣",
+        category: "railway",
+        type: "station",
+        address: { city: "臺北市" },
+      },
+    ];
+  }
+  return ambiguousPlaces();
+}
+
 describe("journey service orchestration", () => {
   it("單一準備流程會自行完成地點、路線、到站與天氣", async () => {
-    const fetcher: ServerFetch = vi.fn(async () =>
-      Response.json(otpWalkingResponse()),
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      input.toString().includes("nominatim.test")
+        ? Response.json(nominatimPlaces(input))
+        : Response.json(otpWalkingResponse()),
     );
     const services = createJourneyServices({
-      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      env: {
+        NOMINATIM_SEARCH_URL: "https://nominatim.test/search",
+        OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1",
+      },
       fetcher,
     });
 
@@ -88,11 +140,16 @@ describe("journey service orchestration", () => {
   });
 
   it("裝置座標以目前位置與定位誤差呈現，不把座標當成名稱", async () => {
-    const fetcher: ServerFetch = vi.fn(async () =>
-      Response.json(otpWalkingResponse()),
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      input.toString().includes("nominatim.test")
+        ? Response.json(nominatimPlaces(input))
+        : Response.json(otpWalkingResponse()),
     );
     const services = createJourneyServices({
-      env: { OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1" },
+      env: {
+        NOMINATIM_SEARCH_URL: "https://nominatim.test/search",
+        OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1",
+      },
       fetcher,
     });
 
@@ -121,10 +178,13 @@ describe("journey service orchestration", () => {
   });
 
   it("自然語言地點有多個候選時停下來請使用者確認", async () => {
-    const fetcher: ServerFetch = vi.fn(async () =>
-      Response.json(ambiguousPlaces()),
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      Response.json(nominatimPlaces(input)),
     );
-    const services = createJourneyServices({ env: {}, fetcher });
+    const services = createJourneyServices({
+      env: { NOMINATIM_SEARCH_URL: "https://nominatim.test/search" },
+      fetcher,
+    });
 
     const result = await services.prepareAccessibleJourney({
       origin: "中正路",
@@ -144,10 +204,13 @@ describe("journey service orchestration", () => {
   });
 
   it("不接受不存在的候選 ID，也不替使用者猜地點", async () => {
-    const fetcher: ServerFetch = vi.fn(async () =>
-      Response.json(ambiguousPlaces()),
+    const fetcher: ServerFetch = vi.fn(async (input) =>
+      Response.json(nominatimPlaces(input)),
     );
-    const services = createJourneyServices({ env: {}, fetcher });
+    const services = createJourneyServices({
+      env: { NOMINATIM_SEARCH_URL: "https://nominatim.test/search" },
+      fetcher,
+    });
 
     const result = await services.prepareAccessibleJourney({
       origin: "中正路",
@@ -168,7 +231,7 @@ describe("journey service orchestration", () => {
   it("使用者確認候選後由同一流程接續完成行程", async () => {
     const fetcher: ServerFetch = vi.fn(async (input) =>
       input.toString().includes("nominatim.test")
-        ? Response.json(ambiguousPlaces())
+        ? Response.json(nominatimPlaces(input))
         : Response.json(otpWalkingResponse()),
     );
     const services = createJourneyServices({
@@ -198,32 +261,35 @@ describe("journey service orchestration", () => {
     expect(result.plan?.data.summary).toBe("從中正路到臺大醫院：建議行程");
   });
 
-  it("常用地點搜尋直接回傳唯一候選，不呼叫外部服務", async () => {
+  it("使用者提供的座標直接回傳唯一候選，不呼叫外部服務", async () => {
     const fetcher: ServerFetch = vi.fn();
     const services = createJourneyServices({ env: {}, fetcher });
 
-    const result = await services.searchPlaces("台北車站");
+    const result = await services.searchPlaces("25.047,121.517");
 
     expect(result.status).toBe("ok");
     expect(result.data.candidates).toEqual([
       expect.objectContaining({
-        name: "臺北車站",
-        source: "known",
-        city: "Taipei",
+        name: "你指定的座標",
+        source: "user",
+        city: null,
       }),
     ]);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("未設定金鑰時清楚使用開發階段情境資料", async () => {
+  it("未設定金鑰時回傳 unavailable，不建立固定情境資料", async () => {
     const fetcher: ServerFetch = vi.fn();
     const services = createJourneyServices({ env: {}, fetcher });
 
-    const arrivals = await services.getVehicleArrivals("臺大醫院");
-    const weather = await services.getWeatherSafetyBrief("臺北市");
+    const arrivals = await services.getVehicleArrivals("臺北市臺大醫院");
+    const weather = await services.getWeatherSafetyBrief("臺北市中正區");
 
-    expect(arrivals.source.kind).toBe("development-fixture");
-    expect(weather.source.kind).toBe("development-fixture");
+    expect(arrivals.status).toBe("unavailable");
+    expect(arrivals.data.arrivals).toEqual([]);
+    expect(arrivals.source.kind).toBe("official");
+    expect(weather.status).toBe("unavailable");
+    expect(weather.source.kind).toBe("official");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -343,8 +409,10 @@ describe("journey service orchestration", () => {
     });
 
     const result = await services.planAccessibleTrip({
-      origin: "臺北車站",
-      destination: "臺大醫院",
+      origin: "25.04631,121.517415",
+      destination: "25.041399,121.51602",
+      originLabel: "臺北車站",
+      destinationLabel: "臺大醫院",
       preferences: {
         minimizeWalking: true,
         minimizeTransfers: true,
@@ -370,8 +438,10 @@ describe("journey service orchestration", () => {
     });
 
     const result = await services.planAccessibleTrip({
-      origin: "臺北車站",
-      destination: "臺大醫院",
+      origin: "25.04631,121.517415",
+      destination: "25.041399,121.51602",
+      originLabel: "臺北車站",
+      destinationLabel: "臺大醫院",
       preferences: {
         minimizeWalking: true,
         minimizeTransfers: true,
@@ -403,6 +473,29 @@ describe("journey service orchestration", () => {
       const url = input.toString();
       if (url.includes("openid-connect/token")) {
         return Response.json({ access_token: "access-token", expires_in: 3_600 });
+      }
+      if (url.includes("/Bus/Stop/City/NewTaipei")) {
+        return Response.json([]);
+      }
+      if (url.includes("/Bus/Stop/City/Taipei")) {
+        const filter = new URL(url).searchParams.get("$filter") ?? "";
+        const isHospital = filter.includes("臺大醫院");
+        return Response.json([
+          {
+            StopUID: isHospital ? "TPE2000" : "TPE1000",
+            StopName: { Zh_tw: isHospital ? "臺大醫院" : "臺北車站" },
+            StopPosition: {
+              PositionLat: isHospital ? 25.041399 : 25.04631,
+              PositionLon: isHospital ? 121.51602 : 121.517415,
+            },
+            StopAddress: isHospital
+              ? "臺北市中正區中山南路"
+              : "臺北市中正區北平西路",
+          },
+        ]);
+      }
+      if (url.includes("nominatim")) {
+        return Response.json([]);
       }
       if (url.includes("EstimatedTimeOfArrival/City/Taipei")) {
         return Response.json([

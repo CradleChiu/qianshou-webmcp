@@ -1,5 +1,3 @@
-import type { PlaceCandidate } from "@/lib/domain/journey";
-
 export type ResolvedTransitPlace = {
   canonicalName: string;
   city: "Taipei" | "NewTaipei";
@@ -19,89 +17,6 @@ export type ResolvedWeatherPlace = {
   districtName: string;
   isRepresentativeDistrict: boolean;
 };
-
-type KnownPlace = {
-  canonicalName: string;
-  aliases: string[];
-  stopKeyword: string;
-  city: "Taipei" | "NewTaipei";
-  countyName: "臺北市" | "新北市";
-  districtName: string;
-  latitude: number;
-  longitude: number;
-};
-
-const knownPlaces: KnownPlace[] = [
-  {
-    canonicalName: "臺北車站",
-    aliases: ["臺北車站", "臺北火車站", "北車"],
-    stopKeyword: "臺北車站",
-    city: "Taipei",
-    countyName: "臺北市",
-    districtName: "中正區",
-    latitude: 25.04631,
-    longitude: 121.517415,
-  },
-  {
-    canonicalName: "臺大醫院",
-    aliases: ["臺大醫院", "臺灣大學醫學院附設醫院"],
-    stopKeyword: "臺大醫院",
-    city: "Taipei",
-    countyName: "臺北市",
-    districtName: "中正區",
-    latitude: 25.041399,
-    longitude: 121.51602,
-  },
-  {
-    canonicalName: "臺北市政府",
-    aliases: ["臺北市政府", "市政府"],
-    stopKeyword: "市政府",
-    city: "Taipei",
-    countyName: "臺北市",
-    districtName: "信義區",
-    latitude: 25.041135,
-    longitude: 121.565685,
-  },
-  {
-    canonicalName: "台北101",
-    aliases: ["臺北101", "臺北一〇一", "101大樓"],
-    stopKeyword: "臺北101／世貿",
-    city: "Taipei",
-    countyName: "臺北市",
-    districtName: "信義區",
-    latitude: 25.033976,
-    longitude: 121.564538,
-  },
-  {
-    canonicalName: "板橋車站",
-    aliases: ["板橋車站", "板橋火車站", "新北板橋公車站"],
-    stopKeyword: "板橋車站",
-    city: "NewTaipei",
-    countyName: "新北市",
-    districtName: "板橋區",
-    latitude: 25.015838,
-    longitude: 121.462964,
-  },
-];
-
-export function searchKnownPlaces(value: string): PlaceCandidate[] {
-  const normalized = stripStopSuffix(normalizeTaiwanPlace(value));
-  const matches = knownPlaces.filter((place) =>
-    place.aliases.some((alias) => alias === normalized),
-  );
-
-  return matches.map((place) => ({
-    id: `known:${place.city}:${place.canonicalName}`,
-    name: place.canonicalName,
-    description: `${place.countyName}${place.districtName}・已確認的常用地點`,
-    latitude: place.latitude,
-    longitude: place.longitude,
-    kind: place.canonicalName.endsWith("車站") ? "station" : "landmark",
-    source: "known",
-    city: place.city,
-    stopUid: null,
-  }));
-}
 
 const counties = [
   "基隆市",
@@ -190,19 +105,6 @@ export function resolveDoubleTaipeiTransitPlace(
   value: string,
 ): ResolvedTransitPlace | null {
   const normalized = stripStopSuffix(normalizeTaiwanPlace(value));
-  const knownPlace = knownPlaces.find((place) =>
-    place.aliases.some((alias) => normalized === alias),
-  );
-
-  if (knownPlace) {
-    return {
-      canonicalName: knownPlace.canonicalName,
-      city: knownPlace.city,
-      countyName: knownPlace.countyName,
-      stopKeyword: knownPlace.stopKeyword,
-    };
-  }
-
   const explicitCounty = counties.find((county) => normalized.includes(county));
   if (
     explicitCounty &&
@@ -212,8 +114,13 @@ export function resolveDoubleTaipeiTransitPlace(
     return null;
   }
   if (normalized.length < 2) return null;
-
-  const countyName = explicitCounty === "新北市" ? "新北市" : "臺北市";
+  const countyName =
+    explicitCounty === "新北市" || normalized.startsWith("新北")
+      ? "新北市"
+      : explicitCounty === "臺北市" || normalized.startsWith("臺北")
+        ? "臺北市"
+        : null;
+  if (!countyName) return null;
 
   return {
     canonicalName: normalized,
@@ -226,30 +133,13 @@ export function resolveDoubleTaipeiTransitPlace(
 export function resolveWeatherCounty(value: string): TaiwanCounty | null {
   const normalized = normalizeTaiwanPlace(value);
   const explicitCounty = counties.find((county) => normalized.includes(county));
-  if (explicitCounty) return explicitCounty;
-
-  const knownPlace = knownPlaces.find((place) =>
-    place.aliases.some((alias) => normalized.includes(alias)),
-  );
-  return knownPlace?.countyName ?? null;
+  return explicitCounty ?? null;
 }
 
 export function resolveShortTermWeatherPlace(
   value: string,
 ): ResolvedWeatherPlace | null {
   const normalized = normalizeTaiwanPlace(value);
-  const knownPlace = knownPlaces.find((place) =>
-    place.aliases.some((alias) => normalized.includes(alias)),
-  );
-
-  if (knownPlace) {
-    return {
-      countyName: knownPlace.countyName,
-      districtName: knownPlace.districtName,
-      isRepresentativeDistrict: false,
-    };
-  }
-
   const countyName = normalized.includes("新北市")
     ? "新北市"
     : normalized.includes("臺北市")
@@ -267,12 +157,7 @@ export function resolveShortTermWeatherPlace(
       isRepresentativeDistrict: false,
     };
   }
-
-  return {
-    countyName,
-    districtName: countyName === "臺北市" ? "中正區" : "板橋區",
-    isRepresentativeDistrict: true,
-  };
+  return null;
 }
 
 export function resolveOtpPlace(value: string): ResolvedOtpPlace | null {
@@ -300,15 +185,5 @@ export function resolveOtpPlace(value: string): ResolvedOtpPlace | null {
     return null;
   }
 
-  const knownPlace = knownPlaces.find((place) =>
-    place.aliases.some((alias) => normalized === alias),
-  );
-  if (!knownPlace) return null;
-
-  return {
-    canonicalName: knownPlace.canonicalName,
-    latitude: knownPlace.latitude,
-    longitude: knownPlace.longitude,
-    coordinateSource: "tdx-gtfs-station",
-  };
+  return null;
 }

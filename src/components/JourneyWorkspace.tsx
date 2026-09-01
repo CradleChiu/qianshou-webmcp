@@ -93,8 +93,7 @@ function sourceKindText(
   compact = false,
 ): string {
   if (kind === "official") return compact ? "官方" : "官方資料";
-  if (kind === "integrated") return compact ? "整合" : "整合資料";
-  return compact ? "示範" : "示範資料";
+  return compact ? "整合" : "整合資料";
 }
 
 function speechFailureMessage(error: SpeechSynthesisErrorCode): string {
@@ -110,7 +109,7 @@ function speechFailureMessage(error: SpeechSynthesisErrorCode): string {
 function candidateSourceText(source: PlaceCandidate["source"]): string {
   if (source === "TDX") return "官方公車站資料";
   if (source === "OpenStreetMap") return "地圖地點資料";
-  return "已確認地點";
+  return "這次提供的位置";
 }
 
 function SourceMetadata({ source }: { source: InformationSource }) {
@@ -791,9 +790,6 @@ export function JourneyWorkspace() {
   }
 
   const hasResults = Boolean(results.plan || results.arrivals || results.weather);
-  const hasFixtureResults = Object.values(results).some(
-    (result) => result?.source.kind === "development-fixture",
-  );
   const arrivalResult = results.arrivals?.data;
   const nextArrival = arrivalResult?.arrivals[0];
   const requestedLeg = arrivalResult?.requestedLeg;
@@ -933,12 +929,6 @@ export function JourneyWorkspace() {
 
             {hasResults ? (
               <div className="result-content">
-                {hasFixtureResults ? (
-                  <p className="result-demo-label">
-                    <strong>結果包含示範資料</strong>
-                    行程路線仍不是即時資訊；請逐項確認下方來源。
-                  </p>
-                ) : null}
                 {results.plan ? (
                   results.plan.status === "unavailable" ? (
                     <div className="journey-unavailable" role="status">
