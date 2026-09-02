@@ -38,6 +38,7 @@ webmcp accessibility transit openai nextjs taiwan opentripplanner
 ## P0 — demo video
 
 - [x] English narration and shot script prepared.
+- [x] Landscape Devpost/YouTube cover prepared at `docs/assets/qianshou-devpost-cover.png`.
 - [ ] Record the main WebMCP journey call.
 - [ ] Verify the agent—not manual form automation—invokes the native tool.
 - [ ] Show the visible page updating after the call.
@@ -54,7 +55,8 @@ webmcp accessibility transit openai nextjs taiwan opentripplanner
 - [x] English testing instructions prepared.
 - [ ] Add public repository URL.
 - [ ] Add public YouTube URL.
-- [ ] Add project thumbnail and screenshots.
+- [x] Project thumbnail prepared; upload `docs/assets/qianshou-devpost-cover.png`.
+- [ ] Add live-product screenshots.
 - [ ] Select technologies used.
 - [ ] Review all claims against the live demo.
 - [ ] Submit before the deadline and save the confirmation page.
