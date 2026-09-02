@@ -1,13 +1,19 @@
-import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { basename, isAbsolute, normalize } from "node:path";
 
-const databasePath = process.env.ANALYTICS_DB_PATH?.trim();
-if (!databasePath) {
+const configuredDatabasePath = process.env.ANALYTICS_DB_PATH?.trim();
+if (!configuredDatabasePath) {
   throw new Error("請先設定 ANALYTICS_DB_PATH。");
 }
-if (!existsSync(databasePath)) {
-  throw new Error("找不到分析事件資料庫。");
+if (
+  !isAbsolute(configuredDatabasePath) ||
+  basename(configuredDatabasePath) !== "analytics.sqlite"
+) {
+  throw new Error(
+    "ANALYTICS_DB_PATH 必須是檔名為 analytics.sqlite 的絕對路徑。",
+  );
 }
+const databasePath = normalize(configuredDatabasePath);
 
 const daysArgument = process.argv.find((value) => value.startsWith("--days="));
 const requestedDays = Number(daysArgument?.split("=")[1] ?? "7");

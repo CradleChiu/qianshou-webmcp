@@ -12,6 +12,47 @@ type IntentServiceOptions = {
   timeoutMs?: number;
 };
 
+const DEFAULT_INTENT_SERVICE_URL = "http://127.0.0.1:8020/v1/interpret";
+const DEFAULT_INTENT_TIMEOUT_MS = 65_000;
+const MIN_INTENT_TIMEOUT_MS = 1_000;
+const MAX_INTENT_TIMEOUT_MS = 120_000;
+
+export function normalizeIntentServiceUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("需求理解服務位址格式錯誤。");
+  }
+
+  if (
+    parsed.protocol !== "http:" ||
+    !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname) ||
+    parsed.pathname !== "/v1/interpret" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error("需求理解服務只允許本機 loopback 端點。");
+  }
+
+  const port = parsed.port ? Number(parsed.port) : 80;
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("需求理解服務連接埠格式錯誤。");
+  }
+
+  return `http://127.0.0.1:${port}/v1/interpret`;
+}
+
+function normalizeIntentTimeout(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_INTENT_TIMEOUT_MS;
+  return Math.min(
+    MAX_INTENT_TIMEOUT_MS,
+    Math.max(MIN_INTENT_TIMEOUT_MS, Math.trunc(value)),
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -120,14 +161,17 @@ export function parseIntentResult(value: unknown): JourneyIntentResult {
 
 export function createIntentService(options: IntentServiceOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const serviceUrl =
+  const serviceUrl = normalizeIntentServiceUrl(
     options.serviceUrl ??
-    process.env.INTENT_SERVICE_URL ??
-    "http://127.0.0.1:8020/v1/interpret";
+      process.env.INTENT_SERVICE_URL ??
+      DEFAULT_INTENT_SERVICE_URL,
+  );
   const serviceToken =
     options.serviceToken ?? process.env.INTENT_SERVICE_TOKEN ?? "";
-  const timeoutMs =
-    options.timeoutMs ?? Number(process.env.INTENT_SERVICE_TIMEOUT_MS || 65_000);
+  const timeoutMs = normalizeIntentTimeout(
+    options.timeoutMs ??
+      Number(process.env.INTENT_SERVICE_TIMEOUT_MS || DEFAULT_INTENT_TIMEOUT_MS),
+  );
 
   return {
     async interpret(request: JourneyIntentRequest): Promise<JourneyIntentResult> {

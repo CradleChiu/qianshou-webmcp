@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, isAbsolute, join, normalize } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   ANALYTICS_EVENT_NAMES,
@@ -34,10 +34,19 @@ let database: DatabaseSync | null = null;
 let lastCleanupAt = 0;
 
 function configuredDatabasePath(): string {
-  return (
-    process.env.ANALYTICS_DB_PATH?.trim() ||
-    join(process.cwd(), "data", "analytics.sqlite")
-  );
+  const configured = process.env.ANALYTICS_DB_PATH?.trim();
+  if (configured) {
+    if (!isAbsolute(configured) || basename(configured) !== "analytics.sqlite") {
+      throw new Error(
+        "ANALYTICS_DB_PATH 必須是檔名為 analytics.sqlite 的絕對路徑。",
+      );
+    }
+    return normalize(configured);
+  }
+
+  const dataDirectory = join(process.cwd(), "data");
+  mkdirSync(dataDirectory, { recursive: true });
+  return join(dataDirectory, "analytics.sqlite");
 }
 
 function retentionDays(): number {
@@ -50,7 +59,6 @@ function retentionDays(): number {
 function openDatabase(): DatabaseSync {
   if (database) return database;
   const path = configuredDatabasePath();
-  mkdirSync(dirname(path), { recursive: true });
   database = new DatabaseSync(path, { timeout: 5_000 });
   database.exec(`
     PRAGMA journal_mode = WAL;

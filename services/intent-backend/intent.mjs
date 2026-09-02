@@ -14,6 +14,10 @@ const CLARIFICATION_TARGETS = new Set([
   null,
 ]);
 const CONFIDENCE_LEVELS = new Set(["high", "medium", "low"]);
+const CODEX_COMMAND = "codex";
+const DEFAULT_CODEX_TIMEOUT_MS = 60_000;
+const MIN_CODEX_TIMEOUT_MS = 1_000;
+const MAX_CODEX_TIMEOUT_MS = 120_000;
 
 function normalizeOptionalText(value, label, maximum = 80) {
   if (value === undefined || value === null) return null;
@@ -240,7 +244,7 @@ function childEnvironment(source = process.env) {
 
 function runCodex(args, { timeoutMs, spawnProcess = spawn }) {
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(process.env.CODEX_BIN || "codex", args, {
+    const child = spawnProcess(CODEX_COMMAND, args, {
       env: childEnvironment(),
       windowsHide: true,
       stdio: ["ignore", "ignore", "pipe"],
@@ -248,12 +252,18 @@ function runCodex(args, { timeoutMs, spawnProcess = spawn }) {
     let stderr = "";
     let settled = false;
 
+    const safeTimeoutMs = Number.isFinite(timeoutMs)
+      ? Math.min(
+          MAX_CODEX_TIMEOUT_MS,
+          Math.max(MIN_CODEX_TIMEOUT_MS, Math.trunc(timeoutMs)),
+        )
+      : DEFAULT_CODEX_TIMEOUT_MS;
     const timer = setTimeout(() => {
       if (settled) return;
       child.kill("SIGKILL");
       settled = true;
       reject(new Error("理解需求逾時，請再說一次。"));
-    }, timeoutMs);
+    }, safeTimeoutMs);
 
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk) => {
@@ -287,7 +297,9 @@ function runCodex(args, { timeoutMs, spawnProcess = spawn }) {
 export async function interpretJourneyIntent(
   input,
   {
-    timeoutMs = Number(process.env.CODEX_TIMEOUT_MS || 60_000),
+    timeoutMs = Number(
+      process.env.CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS,
+    ),
     runner = runCodex,
   } = {},
 ) {

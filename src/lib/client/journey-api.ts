@@ -15,6 +15,7 @@ import type {
   JourneyIntentResult,
 } from "@/lib/domain/intent";
 import type { AnalyticsContext } from "@/lib/domain/analytics";
+import { currentInternalApiPath } from "@/lib/client/internal-api";
 
 type JourneyAction =
   | {
@@ -38,11 +39,11 @@ type JourneyAction =
   | { action: "weather"; location: string };
 
 async function requestJourney<T extends object>(body: JourneyAction): Promise<T> {
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-  const response = await fetch(`${basePath}/api/journey`, {
+  const response = await fetch(currentInternalApiPath("journey"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    credentials: "same-origin",
   });
   const payload = (await response.json()) as
     | T

@@ -6,6 +6,7 @@ import type {
   AnalyticsOutcome,
   ClientAnalyticsEvent,
 } from "@/lib/domain/analytics";
+import { currentInternalApiPath } from "@/lib/client/internal-api";
 
 const SESSION_KEY = "qianshou:analytics-session";
 const ENABLED_KEY = "qianshou:analytics-enabled";
@@ -45,8 +46,7 @@ export function beginAnalyticsInteraction(
 }
 
 function analyticsUrl(): string {
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-  return `${basePath}/api/analytics`;
+  return currentInternalApiPath("analytics");
 }
 
 async function send(body: object): Promise<void> {
@@ -56,6 +56,7 @@ async function send(body: object): Promise<void> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     keepalive: true,
+    credentials: "same-origin",
   }).then((response) => {
     if (!response.ok) throw new Error("analytics request failed");
   });
@@ -90,6 +91,7 @@ export async function deleteAnalyticsSession(): Promise<void> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action: "delete-session", sessionId }),
+    credentials: "same-origin",
   }).then((response) => {
     if (!response.ok) throw new Error("delete analytics session failed");
   });

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createIntentService, parseIntentResult } from "./intent-service";
+import {
+  createIntentService,
+  normalizeIntentServiceUrl,
+  parseIntentResult,
+} from "./intent-service";
 
 const readyResult = {
   intentKind: "journey",
@@ -15,6 +19,20 @@ const readyResult = {
 } as const;
 
 describe("intent service", () => {
+  it("allows only the fixed loopback intent endpoint", () => {
+    expect(
+      normalizeIntentServiceUrl("http://localhost:8020/v1/interpret"),
+    ).toBe("http://127.0.0.1:8020/v1/interpret");
+    expect(() =>
+      normalizeIntentServiceUrl("https://attacker.example/v1/interpret"),
+    ).toThrow(/loopback/);
+    expect(() =>
+      normalizeIntentServiceUrl(
+        "http://127.0.0.1:8020/v1/interpret?next=http://attacker.example",
+      ),
+    ).toThrow(/loopback/);
+  });
+
   it("parses a complete structured result", () => {
     expect(parseIntentResult(readyResult)).toEqual(readyResult);
   });
