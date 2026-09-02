@@ -1,8 +1,10 @@
-# Qianshou (牽手過路走)
+# Qianshou — Accessible Journey Companion
 
 **An agent-native accessible journey companion for Taiwan.**
 
 [Live app](https://loveyou.cradle-ai.dev/journey) · [繁體中文 README](README.md) · [WebMCP Challenge submission draft](docs/devpost-submission-en.md)
+
+Qianshou means “holding hands” in Mandarin: accompanying someone through a journey without taking away their control. The Chinese name is **牽手過路走**.
 
 Qianshou is designed for blind and older travelers who should not need to translate a real-world need into technical form fields. A person can say what they want naturally; a WebMCP-capable agent can prepare the trip through structured tools while the same result appears in a keyboard-accessible, readable, and speakable web interface.
 

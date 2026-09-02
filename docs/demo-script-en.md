@@ -20,7 +20,7 @@ The final video must be public on YouTube, include audio, and remain under three
 
 **Narration:**
 
-> Planning a trip is often a form-filling task. For blind and older travelers, every extra field and every mismatched result adds friction. Qianshou lets a person simply say what they need.
+> Qianshou means “holding hands” in Mandarin. It accompanies blind and older travelers without taking away their control. Instead of filling several precise fields, a person can simply say what they need.
 
 ### 0:15–0:30 — Show native WebMCP
 
@@ -73,7 +73,8 @@ Show that the agent selects `prepare_accessible_journey`. Keep the tool invocati
 **Screen text:**
 
 ```text
-Qianshou 牽手過路走
+Qianshou — Accessible Journey Companion
+牽手過路走
 Agent-native accessible journeys for Taiwan
 loveyou.cradle-ai.dev/journey
 ```

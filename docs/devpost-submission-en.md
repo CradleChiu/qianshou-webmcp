@@ -2,7 +2,7 @@
 
 ## Project name
 
-Qianshou (牽手過路走)
+Qianshou — Accessible Journey Companion
 
 ## Tagline
 
@@ -21,6 +21,8 @@ To be added after the public GitHub repository is created.
 To be added after the public YouTube upload.
 
 ## What it does
+
+Qianshou means “holding hands” in Mandarin: accompanying someone through a journey without taking away their control. Its Chinese name is 牽手過路走.
 
 Qianshou helps blind and older travelers prepare a journey without first learning how to express it as a set of technical form fields. A person can say, “I want to go to Taipei 101,” “from here to Tamsui,” or “where am I?” A WebMCP-capable agent can invoke structured tools provided by the page, while the result simultaneously appears in an accessible human interface.
 
