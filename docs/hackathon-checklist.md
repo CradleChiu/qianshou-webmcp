@@ -12,10 +12,15 @@ Deadline: September 3, 2026 at 1:00 PM PDT — September 4, 2026 at 4:00 AM in T
 - [x] Runtime `.env*`, OTP data, logs, builds, and temporary files are ignored.
 - [x] MIT `LICENSE` added.
 - [x] English README and installation instructions added.
-- [ ] Create a public GitHub repository under `CradleChiu`.
-- [ ] Add the repository remote and push all commits.
-- [ ] Confirm GitHub detects the MIT license at the repository top level.
-- [ ] Add the live URL, description, and topics to the GitHub About section.
+- [x] Create a public GitHub repository under `CradleChiu`.
+- [x] Add the repository remote and push all commits.
+- [x] Confirm GitHub detects the MIT license at the repository top level.
+- [x] Add the live URL, description, and topics to the GitHub About section.
+- [x] Enable secret scanning and push protection.
+- [x] Enable Dependabot vulnerability alerts and security updates.
+- [x] Enable private vulnerability reporting and publish `SECURITY.md`.
+- [x] Enable CodeQL default setup for JavaScript/TypeScript.
+- [x] Protect `master` from force-push and deletion, including for administrators.
 
 Suggested repository:
 

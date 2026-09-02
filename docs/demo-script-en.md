@@ -93,6 +93,6 @@ Qianshou — Agent-native accessible journey planning with WebMCP
 Qianshou (牽手過路走) is a WebMCP-powered accessible journey companion for Taiwan. A person can make a natural request while an agent prepares place resolution, transit, matched arrivals, weather, and explicit data limitations in the same human-accessible interface.
 
 Live demo: https://loveyou.cradle-ai.dev/journey
-Source: [PUBLIC REPOSITORY URL]
+Source: https://github.com/CradleChiu/qianshou-webmcp
 Built for the OpenAI WebMCP Challenge 2026.
 ```

@@ -14,7 +14,7 @@ https://loveyou.cradle-ai.dev/journey
 
 ## Repository URL
 
-To be added after the public GitHub repository is created.
+https://github.com/CradleChiu/qianshou-webmcp
 
 ## Demo video URL
 
