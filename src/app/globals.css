@@ -594,6 +594,49 @@ footer {
   font-size: 0.85rem;
 }
 
+.analytics-privacy {
+  width: min(100%, 42rem);
+  margin: 0 auto 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 55%);
+  text-align: left;
+}
+
+.analytics-privacy summary {
+  min-height: 2.5rem;
+  padding-top: 0.4rem;
+  color: var(--asphalt);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.analytics-privacy p { margin: 0.5rem 0; }
+
+.analytics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.analytics-actions button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 2px solid var(--asphalt);
+  background: var(--paper);
+  color: var(--asphalt);
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.analytics-actions button:hover,
+.analytics-actions button:focus-visible {
+  background: var(--mist);
+  box-shadow: 3px 3px 0 var(--asphalt);
+}
+
 .sr-only {
   position: absolute;
   overflow: hidden;

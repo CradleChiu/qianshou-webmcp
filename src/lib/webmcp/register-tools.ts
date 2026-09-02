@@ -3,6 +3,10 @@ import {
   prepareAccessibleJourney,
 } from "@/lib/client/journey-api";
 import {
+  beginAnalyticsInteraction,
+  recordAnalyticsEvent,
+} from "@/lib/client/analytics";
+import {
   currentLocationFailureMessage,
   isCurrentLocationReference,
   requestCurrentLocation,
@@ -156,6 +160,7 @@ export async function registerJourneyTools(): Promise<{
       },
       annotations: readOnlyAnnotations,
       execute: async (rawInput) => {
+        const analytics = beginAnalyticsInteraction("webmcp");
         if (!isRecord(rawInput)) throw new Error("行程內容格式錯誤。");
         const input = {
           origin: readOptionalString(rawInput, "origin"),
@@ -189,6 +194,16 @@ export async function registerJourneyTools(): Promise<{
               currentLocationFailureMessage(error),
               "origin",
             );
+            recordAnalyticsEvent({
+              context: analytics,
+              eventName: "webmcp_tool_completed",
+              outcome: "partial",
+              metadata: {
+                toolName,
+                locationRole: "origin",
+                preparationState: "needs-location",
+              },
+            });
             publishResult(toolName, result, input);
             return result;
           }
@@ -209,6 +224,16 @@ export async function registerJourneyTools(): Promise<{
               currentLocationFailureMessage(error),
               "destination",
             );
+            recordAnalyticsEvent({
+              context: analytics,
+              eventName: "webmcp_tool_completed",
+              outcome: "partial",
+              metadata: {
+                toolName,
+                locationRole: "destination",
+                preparationState: "needs-location",
+              },
+            });
             publishResult(toolName, result, input);
             return result;
           }
@@ -227,6 +252,23 @@ export async function registerJourneyTools(): Promise<{
           originCandidateId: input.originCandidateId,
           destinationCandidateId: input.destinationCandidateId,
           preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
+        });
+        recordAnalyticsEvent({
+          context: analytics,
+          eventName: "webmcp_tool_completed",
+          outcome:
+            result.state === "ready"
+              ? result.plan?.status === "partial"
+                ? "partial"
+                : "success"
+              : result.state === "unavailable"
+                ? "unavailable"
+                : "partial",
+          metadata: {
+            toolName,
+            preparationState: result.state,
+            hasTransit: Boolean(result.plan?.data.firstTransitLeg),
+          },
         });
         publishResult(toolName, result, {
           ...input,
@@ -250,13 +292,33 @@ export async function registerJourneyTools(): Promise<{
       },
       annotations: readOnlyAnnotations,
       execute: async () => {
+        const analytics = beginAnalyticsInteraction("webmcp");
         try {
           const location = await requestCurrentLocation();
           const result = await describeCurrentLocation(location);
+          recordAnalyticsEvent({
+            context: analytics,
+            eventName: "webmcp_tool_completed",
+            outcome: "success",
+            metadata: {
+              toolName: locationToolName,
+              locationRole: "identify",
+            },
+          });
           publishResult(locationToolName, result);
           return result;
         } catch (error) {
           const result = { error: currentLocationFailureMessage(error) };
+          recordAnalyticsEvent({
+            context: analytics,
+            eventName: "webmcp_tool_completed",
+            outcome: "failed",
+            metadata: {
+              toolName: locationToolName,
+              locationRole: "identify",
+              errorCode: "request-failed",
+            },
+          });
           publishResult(locationToolName, result);
           return result;
         }

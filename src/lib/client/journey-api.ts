@@ -14,9 +14,14 @@ import type {
   JourneyIntentRequest,
   JourneyIntentResult,
 } from "@/lib/domain/intent";
+import type { AnalyticsContext } from "@/lib/domain/analytics";
 
 type JourneyAction =
-  | { action: "interpret"; request: JourneyIntentRequest }
+  | {
+      action: "interpret";
+      request: JourneyIntentRequest;
+      analytics?: AnalyticsContext;
+    }
   | { action: "prepare"; request: JourneyPreparationRequest }
   | { action: "plan"; request: JourneyRequest }
   | { action: "places"; query: string }
@@ -62,8 +67,13 @@ export function prepareAccessibleJourney(
 
 export function interpretJourneyIntent(
   request: JourneyIntentRequest,
+  analytics?: AnalyticsContext,
 ): Promise<JourneyIntentResult> {
-  return requestJourney<JourneyIntentResult>({ action: "interpret", request });
+  return requestJourney<JourneyIntentResult>({
+    action: "interpret",
+    request,
+    analytics,
+  });
 }
 
 export function describeCurrentLocation(request: {

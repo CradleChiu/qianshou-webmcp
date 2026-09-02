@@ -14,6 +14,7 @@ Environment=NEXT_PUBLIC_BASE_PATH=/journey
 Environment=INTENT_SERVICE_URL=http://127.0.0.1:8020/v1/interpret
 Environment=INTENT_SERVICE_TIMEOUT_MS=65000
 EnvironmentFile=-%h/apps/openai_webmcp/shared/web.env
+EnvironmentFile=-%h/apps/openai_webmcp/shared/analytics.env
 ExecStart=/usr/bin/env corepack pnpm start --hostname 127.0.0.1 --port 3200
 Restart=on-failure
 RestartSec=5
@@ -21,6 +22,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=%h/apps/openai_webmcp/shared
 
 [Install]
 WantedBy=default.target

@@ -6,6 +6,10 @@ import type {
   VehicleArrivalRequest,
 } from "@/lib/domain/journey";
 import type { JourneyIntentRequest } from "@/lib/domain/intent";
+import {
+  analyticsStore,
+  readAnalyticsContext,
+} from "@/lib/server/analytics";
 import { intentService } from "@/lib/server/intent-service";
 import { journeyServices } from "@/lib/server/journey-service";
 
@@ -255,9 +259,36 @@ export async function POST(request: Request) {
       );
     }
     if (body.action === "interpret") {
-      return Response.json(
-        await intentService.interpret(readIntentRequest(body.request)),
-      );
+      const intentRequest = readIntentRequest(body.request);
+      const analytics = readAnalyticsContext(body.analytics);
+      try {
+        const result = await intentService.interpret(intentRequest);
+        if (analytics) {
+          try {
+            analyticsStore.recordIntent({
+              context: analytics,
+              question: intentRequest.utterance,
+              result,
+              summary: result.understoodIntent,
+            });
+          } catch (analyticsError) {
+            console.error("Unable to record intent analytics", analyticsError);
+          }
+        }
+        return Response.json(result);
+      } catch (intentError) {
+        if (analytics) {
+          try {
+            analyticsStore.recordIntentFailure({
+              context: analytics,
+              question: intentRequest.utterance,
+            });
+          } catch (analyticsError) {
+            console.error("Unable to record failed intent analytics", analyticsError);
+          }
+        }
+        throw intentError;
+      }
     }
     if (body.action === "prepare") {
       return Response.json(

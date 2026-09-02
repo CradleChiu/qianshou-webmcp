@@ -10,7 +10,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --test services/intent-backend/*.test.mjs",
-    "test:intent-backend": "node --test services/intent-backend/*.test.mjs"
+    "test:intent-backend": "node --test services/intent-backend/*.test.mjs",
+    "analytics:report": "node scripts/analytics-report.mjs"
   },
   "engines": {
     "node": ">=22"

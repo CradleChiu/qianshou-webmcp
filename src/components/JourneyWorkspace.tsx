@@ -2,15 +2,24 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
+  analyticsEnabled,
+  beginAnalyticsInteraction,
+  deleteAnalyticsSession,
+  recordAnalyticsEvent,
+  setAnalyticsEnabled,
+} from "@/lib/client/analytics";
+import {
   describeCurrentLocation,
   getVehicleArrivals as fetchVehicleArrivals,
   interpretJourneyIntent,
   prepareAccessibleJourney,
 } from "@/lib/client/journey-api";
 import {
+  CurrentLocationError,
   currentLocationFailureMessage,
   requestCurrentLocation,
 } from "@/lib/client/current-location";
+import type { AnalyticsContext } from "@/lib/domain/analytics";
 import { DEFAULT_JOURNEY_PREFERENCES } from "@/lib/domain/journey";
 import { journeyDestinationQuery } from "@/lib/domain/intent";
 import type {
@@ -219,10 +228,41 @@ export function JourneyWorkspace() {
     useState<CurrentLocationUse | null>(null);
   const [placeSelections, setPlaceSelections] = useState<PlaceSelections>({});
   const [placeChoices, setPlaceChoices] = useState<PlaceChoices>({});
+  const [analyticsOn, setAnalyticsOn] = useState(true);
+  const [analyticsMessage, setAnalyticsMessage] = useState("");
   const journeyRequestRef = useRef<HTMLTextAreaElement>(null);
   const firstPlaceChoiceRef = useRef<HTMLButtonElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const analyticsContextRef = useRef<AnalyticsContext | null>(null);
+  const inputStartRecordedRef = useRef(false);
+
+  function currentAnalyticsContext(): AnalyticsContext {
+    if (!analyticsContextRef.current) {
+      analyticsContextRef.current = beginAnalyticsInteraction("keyboard");
+    }
+    return analyticsContextRef.current;
+  }
+
+  function recordInputStarted(): void {
+    if (inputStartRecordedRef.current) return;
+    inputStartRecordedRef.current = true;
+    recordAnalyticsEvent({
+      context: currentAnalyticsContext(),
+      eventName: "journey_input_started",
+      outcome: "started",
+    });
+  }
+
+  function analyticsDuration(): number | undefined {
+    const context = analyticsContextRef.current;
+    if (!context) return undefined;
+    return Math.max(0, Date.now() - Date.parse(context.startedAt));
+  }
+
+  useEffect(() => {
+    setAnalyticsOn(analyticsEnabled());
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -475,6 +515,26 @@ export function JourneyWorkspace() {
       destinationCandidateId: existingDestination?.id,
       preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
     });
+    recordAnalyticsEvent({
+      context: analyticsContextRef.current,
+      eventName: "journey_prepared",
+      outcome:
+        preparation.state === "ready"
+          ? preparation.plan?.status === "partial"
+            ? "partial"
+            : "success"
+          : preparation.state === "unavailable"
+            ? "unavailable"
+            : "partial",
+      durationMs: analyticsDuration(),
+      metadata: {
+        preparationState: preparation.state,
+        candidateCount:
+          (preparation.confirmations.origin?.data.candidates.length ?? 0) +
+          (preparation.confirmations.destination?.data.candidates.length ?? 0),
+        hasTransit: Boolean(preparation.plan?.data.firstTransitLeg),
+      },
+    });
     applyPreparation(preparation, {
       origin:
         currentLocation?.field === "origin"
@@ -506,6 +566,12 @@ export function JourneyWorkspace() {
     field: PlaceField,
     otherPlace: string,
   ) {
+    recordAnalyticsEvent({
+      context: analyticsContextRef.current,
+      eventName: "location_requested",
+      outcome: "started",
+      metadata: { locationRole: field },
+    });
     setCurrentLocationUse(field);
     setLocationFeedback({
       state: "requesting",
@@ -516,6 +582,13 @@ export function JourneyWorkspace() {
 
     try {
       const location = await requestCurrentLocation();
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "location_completed",
+        outcome: "success",
+        durationMs: analyticsDuration(),
+        metadata: { locationRole: field },
+      });
       setLocationFeedback({
         state: "ready",
         headline: "已取得目前位置",
@@ -539,6 +612,19 @@ export function JourneyWorkspace() {
       );
     } catch (caught) {
       const message = currentLocationFailureMessage(caught);
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "location_completed",
+        outcome: "failed",
+        durationMs: analyticsDuration(),
+        metadata: {
+          locationRole: field,
+          errorCode:
+            caught instanceof CurrentLocationError
+              ? caught.code
+              : "request-failed",
+        },
+      });
       setLocationFeedback({
         state: "failed",
         headline: "目前沒有取得定位",
@@ -555,6 +641,12 @@ export function JourneyWorkspace() {
   }
 
   async function identifyCurrentLocation() {
+    recordAnalyticsEvent({
+      context: analyticsContextRef.current,
+      eventName: "location_requested",
+      outcome: "started",
+      metadata: { locationRole: "identify" },
+    });
     setCurrentLocationUse("identify");
     setLocationFeedback({
       state: "requesting",
@@ -565,6 +657,13 @@ export function JourneyWorkspace() {
     try {
       const location = await requestCurrentLocation();
       const place = await describeCurrentLocation(location);
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "location_completed",
+        outcome: "success",
+        durationMs: analyticsDuration(),
+        metadata: { locationRole: "identify" },
+      });
       setLocationFeedback({
         state: "ready",
         headline: `你目前約在${place.name}附近`,
@@ -575,6 +674,19 @@ export function JourneyWorkspace() {
       setAnnouncement(`你目前約在${place.name}附近。`);
     } catch (caught) {
       const message = currentLocationFailureMessage(caught);
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "location_completed",
+        outcome: "failed",
+        durationMs: analyticsDuration(),
+        metadata: {
+          locationRole: "identify",
+          errorCode:
+            caught instanceof CurrentLocationError
+              ? caught.code
+              : "request-failed",
+        },
+      });
       setLocationFeedback({
         state: "failed",
         headline: "目前沒有取得新定位",
@@ -628,6 +740,16 @@ export function JourneyWorkspace() {
       return;
     }
 
+    const analyticsContext = analyticsEnabled()
+      ? currentAnalyticsContext()
+      : undefined;
+    recordAnalyticsEvent({
+      context: analyticsContext,
+      eventName: "question_submitted",
+      outcome: "started",
+      durationMs: analyticsDuration(),
+    });
+
     setBusy(true);
     setAnnouncement(
       canReuseConfirmedPlaces
@@ -644,13 +766,16 @@ export function JourneyWorkspace() {
         return;
       }
 
-      const intent = await interpretJourneyIntent({
-        utterance,
-        knownOrigin: intentContext.origin,
-        knownOriginReference: intentContext.originReference,
-        knownDestination: intentContext.destination,
-        knownDestinationReference: intentContext.destinationReference,
-      });
+      const intent = await interpretJourneyIntent(
+        {
+          utterance,
+          knownOrigin: intentContext.origin,
+          knownOriginReference: intentContext.originReference,
+          knownDestination: intentContext.destination,
+          knownDestinationReference: intentContext.destinationReference,
+        },
+        analyticsContext,
+      );
       setIntentContext({
         origin: intent.origin,
         originReference: intent.originReference,
@@ -732,9 +857,23 @@ export function JourneyWorkspace() {
         tripLeg: nextPlan.firstTransitLeg,
       });
       setResults((current) => ({ ...current, plan: nextEnvelope, arrivals }));
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "alternative_selected",
+        outcome: "success",
+        durationMs: analyticsDuration(),
+        metadata: { hasTransit: Boolean(nextPlan.firstTransitLeg) },
+      });
       setAnnouncement(`已改用「${alternative.label}」，到站資訊也已同步更新。`);
       window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
     } catch (caught) {
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "alternative_selected",
+        outcome: "partial",
+        durationMs: analyticsDuration(),
+        metadata: { hasTransit: Boolean(nextPlan.firstTransitLeg) },
+      });
       const message =
         caught instanceof Error ? caught.message : "無法更新到站資訊。";
       setError(`${message} 路線已切換，出發前請另外確認班次。`);
@@ -810,12 +949,24 @@ export function JourneyWorkspace() {
     utterance.onstart = () => {
       if (activeUtteranceRef.current !== utterance) return;
       setSpeechStatus("speaking");
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "speech_started",
+        outcome: "success",
+        metadata: { control: "read" },
+      });
       setAnnouncement("開始朗讀目前行程。");
     };
     utterance.onend = () => {
       if (activeUtteranceRef.current !== utterance) return;
       activeUtteranceRef.current = null;
       setSpeechStatus("idle");
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "speech_completed",
+        outcome: "success",
+        durationMs: analyticsDuration(),
+      });
       setAnnouncement("目前行程朗讀完成。");
     };
     utterance.onerror = (event) => {
@@ -826,6 +977,12 @@ export function JourneyWorkspace() {
         setAnnouncement("已停止朗讀。");
         return;
       }
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "speech_completed",
+        outcome: "failed",
+        metadata: { errorCode: "speech-failed" },
+      });
       setError(speechFailureMessage(event.error));
       setAnnouncement("語音朗讀無法使用，行程文字仍保留在畫面上。");
     };
@@ -841,12 +998,24 @@ export function JourneyWorkspace() {
     if (speechStatus === "speaking") {
       window.speechSynthesis.pause();
       setSpeechStatus("paused");
+      recordAnalyticsEvent({
+        context: analyticsContextRef.current,
+        eventName: "speech_paused",
+        outcome: "success",
+        metadata: { control: "pause" },
+      });
       setAnnouncement("已暫停朗讀。");
       return;
     }
 
     window.speechSynthesis.resume();
     setSpeechStatus("speaking");
+    recordAnalyticsEvent({
+      context: analyticsContextRef.current,
+      eventName: "speech_resumed",
+      outcome: "success",
+      metadata: { control: "resume" },
+    });
     setAnnouncement("繼續朗讀目前行程。");
   }
 
@@ -860,10 +1029,25 @@ export function JourneyWorkspace() {
     }
     window.speechSynthesis.cancel();
     setSpeechStatus("idle");
+    recordAnalyticsEvent({
+      context: analyticsContextRef.current,
+      eventName: "speech_stopped",
+      outcome: "cancelled",
+      metadata: { control: "stop" },
+    });
     setAnnouncement("已停止朗讀。");
   }
 
   function selectPlace(field: PlaceField, candidate: PlaceCandidate) {
+    recordAnalyticsEvent({
+      context: analyticsContextRef.current,
+      eventName: "place_candidate_selected",
+      outcome: "success",
+      metadata: {
+        candidateField: field,
+        candidateSource: candidate.source,
+      },
+    });
     const inputValue = candidate.name;
     if (field === "origin") setOrigin(inputValue);
     else setDestination(inputValue);
@@ -881,6 +1065,28 @@ export function JourneyWorkspace() {
     setAnnouncement(
       `已選擇${field === "origin" ? "起點" : "目的地"}：${candidate.name}。`,
     );
+  }
+
+  function toggleAnalytics(): void {
+    const next = !analyticsOn;
+    setAnalyticsEnabled(next);
+    setAnalyticsOn(next);
+    setAnalyticsMessage(
+      next
+        ? "已開始記錄這個瀏覽工作階段的使用紀錄。"
+        : "已停止記錄；先前資料仍可另外刪除。",
+    );
+  }
+
+  async function clearAnalytics(): Promise<void> {
+    try {
+      await deleteAnalyticsSession();
+      analyticsContextRef.current = null;
+      inputStartRecordedRef.current = false;
+      setAnalyticsMessage("已刪除這個瀏覽工作階段的使用紀錄。");
+    } catch {
+      setAnalyticsMessage("目前無法刪除使用紀錄，請稍後再試。");
+    }
   }
 
   function renderPlaceConfirmation(field: PlaceField) {
@@ -990,7 +1196,13 @@ export function JourneyWorkspace() {
                   aria-describedby={error ? "form-error" : undefined}
                   aria-invalid={requestInvalid}
                   value={journeyRequest}
+                  onFocus={recordInputStarted}
                   onChange={(event) => {
+                    if (!intentDirty) {
+                      analyticsContextRef.current = null;
+                      inputStartRecordedRef.current = false;
+                    }
+                    recordInputStarted();
                     setJourneyRequest(event.target.value);
                     setIntentDirty(true);
                     setError("");
@@ -1296,7 +1508,19 @@ export function JourneyWorkspace() {
                   ) : null}
                 </div>
 
-                <details className="source-details">
+                <details
+                  className="source-details"
+                  onToggle={(event) => {
+                    recordAnalyticsEvent({
+                      context: analyticsContextRef.current,
+                      eventName: "source_details_toggled",
+                      outcome: "success",
+                      metadata: {
+                        control: event.currentTarget.open ? "open" : "close",
+                      },
+                    });
+                  }}
+                >
                   <summary>資料來源與目前限制</summary>
                   {results.plan ? (
                     <section aria-labelledby="plan-source-title">
@@ -1354,6 +1578,22 @@ export function JourneyWorkspace() {
       </main>
 
       <footer>
+        <details className="analytics-privacy">
+          <summary>使用紀錄與隱私</summary>
+          <p>
+            這個工作階段會保存你送出的原始提問、系統理解摘要、意圖分類與主要操作。
+            若提問包含地址或座標，也會原樣保存；瀏覽器自動取得的定位座標不會寫入使用紀錄。
+          </p>
+          <div className="analytics-actions">
+            <button type="button" onClick={toggleAnalytics}>
+              {analyticsOn ? "停止記錄" : "開始記錄"}
+            </button>
+            <button type="button" onClick={() => void clearAnalytics()}>
+              刪除這次使用紀錄
+            </button>
+          </div>
+          {analyticsMessage ? <p role="status">{analyticsMessage}</p> : null}
+        </details>
         <p>牽手過路走・在台灣，和你一起把路想清楚</p>
       </footer>
 
