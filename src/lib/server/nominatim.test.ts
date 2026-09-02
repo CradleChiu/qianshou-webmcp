@@ -13,7 +13,10 @@ describe("OpenStreetMap Nominatim adapter", () => {
     const sleep = vi.fn(async (milliseconds: number) => {
       timestamp += milliseconds;
     });
-    const fetcher: ServerFetch = vi.fn(async (input, init) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
       requests.push({ url: input.toString(), init });
       return jsonResponse([
         {

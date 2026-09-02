@@ -28,7 +28,9 @@ function createClient(fetcher: ServerFetch) {
 describe("TDX adapter", () => {
   it("搜尋臺北與新北官方站點，去除重複 StopUID 並快取", async () => {
     const requests: string[] = [];
-    const fetcher: ServerFetch = vi.fn(async (input) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) => {
       const url = input.toString();
       requests.push(url);
       if (url.endsWith("/token")) {
@@ -78,7 +80,10 @@ describe("TDX adapter", () => {
 
   it("快取 access token 與 30 秒到站結果，並映射成可辨識來源", async () => {
     const requests: Array<{ url: string; init?: ServerRequestInit }> = [];
-    const fetcher: ServerFetch = vi.fn(async (input, init) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
       const url = input.toString();
       requests.push({ url, init });
       if (url.endsWith("/token")) {
@@ -138,7 +143,9 @@ describe("TDX adapter", () => {
   });
 
   it("沒有符合站名的資料時明確標示 unavailable", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().endsWith("/token")
         ? jsonResponse({ access_token: "access-token", expires_in: 3_600 })
         : jsonResponse([]),
@@ -157,7 +164,9 @@ describe("TDX adapter", () => {
 
   it("使用 NewTaipei 城市代碼查詢新北市板橋車站", async () => {
     const requests: string[] = [];
-    const fetcher: ServerFetch = vi.fn(async (input) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) => {
       const url = input.toString();
       requests.push(url);
       return url.endsWith("/token")
@@ -183,7 +192,10 @@ describe("TDX adapter", () => {
   it("快取 token 被拒絕時只重新驗證一次並重試到站查詢", async () => {
     let tokenRequests = 0;
     let arrivalRequests = 0;
-    const fetcher: ServerFetch = vi.fn(async (input, init) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
       if (input.toString().endsWith("/token")) {
         tokenRequests += 1;
         return jsonResponse({
@@ -227,7 +239,9 @@ describe("TDX adapter", () => {
 
   it("以 OTP 路段的站牌、路線與方向精確查詢到站", async () => {
     const requests: string[] = [];
-    const fetcher: ServerFetch = vi.fn(async (input) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) => {
       const url = input.toString();
       requests.push(url);
       if (url.endsWith("/token")) {
@@ -275,7 +289,9 @@ describe("TDX adapter", () => {
   });
 
   it("精確識別不符時不混入其他路線或反方向班次", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().endsWith("/token")
         ? jsonResponse({ access_token: "access-token", expires_in: 3_600 })
         : jsonResponse([
@@ -309,7 +325,9 @@ describe("TDX adapter", () => {
 
   it("把 OTP 捷運月臺代碼與方向精確綁定 TDX 臺北捷運進站資料", async () => {
     const requests: string[] = [];
-    const fetcher: ServerFetch = vi.fn(async (input) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) => {
       const url = input.toString();
       requests.push(url);
       if (url.endsWith("/token")) {
@@ -384,7 +402,9 @@ describe("TDX adapter", () => {
   });
 
   it("捷運目前未偵測到進站列車時不誤判成沒有車或服務失敗", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().endsWith("/token")
         ? jsonResponse({ access_token: "access-token", expires_in: 3_600 })
         : jsonResponse([]),

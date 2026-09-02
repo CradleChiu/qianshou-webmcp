@@ -53,15 +53,21 @@ describe("current browser location", () => {
     [1, "permission-denied"],
     [2, "unavailable"],
     [3, "timeout"],
-  ] as const)("maps browser error %s to %s", async (code, expected) => {
-    const geolocation = provider((_success, failure) => {
-      failure?.({ code } as GeolocationPositionError);
-    });
+  ] as const)(
+    "maps browser error %s to %s",
+    async (
+      code: 1 | 2 | 3,
+      expected: "permission-denied" | "unavailable" | "timeout",
+    ) => {
+      const geolocation = provider((_success, failure) => {
+        failure?.({ code } as GeolocationPositionError);
+      });
 
-    await expect(requestCurrentLocation(geolocation)).rejects.toMatchObject({
-      code: expected,
-    });
-  });
+      await expect(requestCurrentLocation(geolocation)).rejects.toMatchObject({
+        code: expected,
+      });
+    },
+  );
 
   it("rejects a location that is too imprecise for transit planning", async () => {
     const capturedAt = Date.now();

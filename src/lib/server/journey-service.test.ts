@@ -108,7 +108,9 @@ function nominatimPlaces(input: RequestInfo | URL) {
 
 describe("journey service orchestration", () => {
   it("單一準備流程會自行完成地點、路線、到站與天氣", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().includes("nominatim.test")
         ? Response.json(nominatimPlaces(input))
         : Response.json(otpWalkingResponse()),
@@ -140,7 +142,9 @@ describe("journey service orchestration", () => {
   });
 
   it("裝置座標以目前位置與定位誤差呈現，不把座標當成名稱", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().includes("nominatim.test")
         ? Response.json(nominatimPlaces(input))
         : Response.json(otpWalkingResponse()),
@@ -178,7 +182,9 @@ describe("journey service orchestration", () => {
   });
 
   it("自然語言地點有多個候選時停下來請使用者確認", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       Response.json(nominatimPlaces(input)),
     );
     const services = createJourneyServices({
@@ -204,7 +210,9 @@ describe("journey service orchestration", () => {
   });
 
   it("不接受不存在的候選 ID，也不替使用者猜地點", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       Response.json(nominatimPlaces(input)),
     );
     const services = createJourneyServices({
@@ -229,7 +237,9 @@ describe("journey service orchestration", () => {
   });
 
   it("使用者確認候選後由同一流程接續完成行程", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().includes("nominatim.test")
         ? Response.json(nominatimPlaces(input))
         : Response.json(otpWalkingResponse()),
@@ -310,7 +320,9 @@ describe("journey service orchestration", () => {
   });
 
   it("捷運路段精確查官方進站資料，不改用公車倒數替代", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) =>
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
       input.toString().includes("openid-connect/token")
         ? Response.json({ access_token: "access-token", expires_in: 3_600 })
         : Response.json([
@@ -469,7 +481,9 @@ describe("journey service orchestration", () => {
   });
 
   it("完整路線失敗時仍查詢已確認起點的官方附近到站", async () => {
-    const fetcher: ServerFetch = vi.fn(async (input) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) => {
       const url = input.toString();
       if (url.includes("openid-connect/token")) {
         return Response.json({ access_token: "access-token", expires_in: 3_600 });

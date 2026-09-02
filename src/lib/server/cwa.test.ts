@@ -71,7 +71,10 @@ function forecastResponse(locationName = "中正區") {
 describe("CWA adapter", () => {
   it("只整理目前與下一個逐 3 小時區段", async () => {
     let request: { url: string; init?: ServerRequestInit } | undefined;
-    const fetcher: ServerFetch = vi.fn(async (input, init) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
       request = { url: input.toString(), init };
       return jsonResponse(forecastResponse());
     });
@@ -143,7 +146,9 @@ describe("CWA adapter", () => {
 
   it("新北市使用官方 F-D0047-069 資料集", async () => {
     let requestedUrl = "";
-    const fetcher: ServerFetch = vi.fn(async (input) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) => {
       requestedUrl = input.toString();
       return jsonResponse(forecastResponse("板橋區"));
     });

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JourneyRequest } from "@/lib/domain/journey";
-import type { ServerFetch } from "./http";
+import type { ServerFetch, ServerRequestInit } from "./http";
 import { OtpClient } from "./otp";
 import type { ResolvedOtpPlace } from "./place-resolver";
 
@@ -92,7 +92,10 @@ function responseBody() {
 describe("OTP adapter", () => {
   it("以 planConnection 傳送可及性、少步行與少轉乘偏好", async () => {
     const bodies: Array<Record<string, unknown>> = [];
-    const fetcher: ServerFetch = vi.fn(async (_input, init) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      _input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return Response.json(responseBody());
     });
@@ -831,7 +834,10 @@ describe("OTP adapter", () => {
     };
     const responses = [empty, transferHubs, firstSegment, secondSegment];
     const bodies: Array<Record<string, unknown>> = [];
-    const fetcher: ServerFetch = vi.fn(async (_input, init) => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      _input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return Response.json(responses.shift() ?? empty);
     });
