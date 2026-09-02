@@ -4,9 +4,10 @@
 
 - TDX 臺北捷運（TRTC）靜態 GTFS：需用 TDX OAuth token 下載。
 - TDX 全臺靜態 GTFS：下載後只保留 `TPE`、`NWT` 前綴的臺北市與新北市公車資料。
+- TDX 全臺靜態 GTFS 中 `agency_id=TRA` 的臺鐵資料：依 GTFS 關聯欄位抽成獨立 feed，提供捷運／公車與台鐵轉乘規劃。
 - OpenStreetMap Taiwan PBF：由 Geofabrik 提供鏡像，下載後依雙北 GTFS 實際站點範圍裁切；使用資料時須標示 `© OpenStreetMap contributors`。
 
-TDX 現行全臺 GTFS 端點為 `/api/gtfs/V3/Map/GTFS/Static`。舊版的臺北市與新北市個別 URL 已失效，不再使用。全臺原始 ZIP 同時含其他運具，其中部分 rail station entrance 會參照未提供的 `levels.txt`；直接交給 OTP 2.9 會建圖失敗。因此 `filter-double-taipei-bus-gtfs.ps1` 只輸出雙北公車所需的核心 GTFS 表，原始全臺 ZIP 不會被 OTP 載入。
+TDX 現行全臺 GTFS 端點為 `/api/gtfs/V3/Map/GTFS/Static`。舊版的臺北市與新北市個別 URL 已失效，不再使用。全臺原始 ZIP 同時含其他運具與大型票價表，不能整包交給 OTP。`filter-double-taipei-bus-gtfs.ps1` 只輸出雙北公車所需的核心 GTFS 表；`filter-operator-gtfs.py --agency-id TRA` 則依 routes、trips、stop_times、stops、calendar 與 shapes 的關聯抽出台鐵 feed。原始全臺 ZIP 不會被 OTP 載入。
 
 實測裁切結果包含 2,592 routes、61,739 stops、79,358 trips 與 2,822,272 stop-time rows。OTP 2.9 已成功驗證並插值這些 trips；這與 TDX Bus `Schedule` API 每筆只有起站時間、無法單獨轉成 GTFS 的情況不同。
 
@@ -20,9 +21,9 @@ TDX 現行全臺 GTFS 端點為 `/api/gtfs/V3/Map/GTFS/Static`。舊版的臺北
 docker compose -f .\infra\otp\docker-compose.yml up -d
 ```
 
-`crop-osm.ps1` 會讀取兩份 GTFS 的 `stops.txt`，以最外圍站點加上 0.05 度（約 5 公里）邊界裁切 OSM。2026-08-31 實測把 326 MB 全臺 PBF 降為 110 MB，graph 由約 939 MB 降為 96.6 MB；street graph 由 1,497,329 vertices／3,916,081 edges 降為 416,129 vertices／1,148,080 edges，同時保留 61,982 stops 與 1,652 patterns。
+`crop-osm.ps1` 只讀取雙北公車與臺北捷運兩份 GTFS 的 `stops.txt`，以最外圍站點加上 0.05 度（約 5 公里）邊界裁切 OSM。台鐵 feed 可包含全臺班次，但不會把街道路網重新膨脹為全臺範圍。2026-08-31 實測把 326 MB 全臺 PBF 降為 110 MB，graph 由約 939 MB 降為 96.6 MB；street graph 由 1,497,329 vertices／3,916,081 edges 降為 416,129 vertices／1,148,080 edges，同時保留 61,982 stops 與 1,652 patterns。
 
-`build-config.json` 只預算產品實際使用的「少走路＋wheelchair」stop-to-stop transfer。`router-config.json` 不在啟動時預填整張圖的 RAPTOR cache；`otp-config.json` 啟用 `OnDemandRaptorTransfer`，在實際區域查詢時才計算。正式容器使用 2 GiB Java heap、3 GiB cgroup 上限與 1 GiB reservation；實際路線查詢後約使用 1.3–1.5 GiB，載圖至可服務約 31 秒。
+`build-config.json` 依 OTP 官方建議同時預算一般步行與 wheelchair 兩組 stop-to-stop transfer；只建立 wheelchair transfer 會讓一般搜尋缺少捷運、台鐵等跨運具轉乘。兩組皆沿用產品的少走路成本。`router-config.json` 不在啟動時預填整張圖的 RAPTOR cache；`otp-config.json` 啟用 `OnDemandRaptorTransfer`，在實際區域查詢時才計算。正式容器使用 2 GiB Java heap、3 GiB cgroup 上限與 1 GiB reservation；實際路線查詢後約使用 1.3–1.5 GiB，載圖至可服務約 31 秒。
 
 `build-graph.ps1` 在缺少 `double-taipei.osm.pbf` 時會自動執行 `crop-osm.ps1`。裁切工具以 `infra/otp/osmium/Dockerfile` 建立可重現的 `osmium-tool` 容器，不要求 Windows 預先安裝 osmium。
 
@@ -31,7 +32,7 @@ docker compose -f .\infra\otp\docker-compose.yml up -d
 1. 驗證或下載 TRTC GTFS。
 2. 驗證或下載 Geofabrik Taiwan OSM PBF。
 3. 下載 TDX 全臺 GTFS，驗證必要檔案與 ZIP 完整性。
-4. 裁切成 `data/gtfs_tdx_double_taipei.zip`。
+4. 裁切成 `data/gtfs_tdx_double_taipei.zip`，並抽出 `data/gtfs_tra.zip`。
 5. 預設刪除大型全臺 GTFS 來源檔；加上 `-KeepNationalArchive` 可保留。全臺 OSM 會保留作為下一次依 GTFS 邊界重裁切的來源。
 
 大型 TDX 下載若中斷會刪除 `.part` 並從頭重試，避免把截斷 ZIP 當成有效資料。可用 `-DownloadAttempts 1..6` 調整次數；`-Force` 會重新下載全部資料。

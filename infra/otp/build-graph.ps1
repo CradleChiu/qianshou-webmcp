@@ -11,6 +11,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $dataRoot "gtfs_trtc.zip"))) {
 if (-not (Test-Path -LiteralPath (Join-Path $dataRoot "gtfs_tdx_double_taipei.zip"))) {
   throw "data/gtfs_tdx_double_taipei.zip is missing. Run fetch-data.ps1 first."
 }
+if (-not (Test-Path -LiteralPath (Join-Path $dataRoot "gtfs_tra.zip"))) {
+  throw "data/gtfs_tra.zip is missing. Run fetch-data.ps1 first."
+}
 if (-not (Test-Path -LiteralPath (Join-Path $dataRoot "taiwan-latest.osm.pbf"))) {
   throw "data/taiwan-latest.osm.pbf is missing. Run fetch-data.ps1 first."
 }

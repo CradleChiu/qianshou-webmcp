@@ -19,6 +19,7 @@ $projectRoot = (Resolve-Path (Join-Path $otpRoot "..\..")).Path
 $dataRoot = Join-Path $otpRoot "data"
 $envFile = Join-Path $projectRoot ".env.local"
 $filterScript = Join-Path $otpRoot "filter-double-taipei-bus-gtfs.ps1"
+$operatorFilterScript = Join-Path $otpRoot "filter-operator-gtfs.py"
 
 if (-not (Test-Path -LiteralPath $envFile)) {
   throw ".env.local was not found. Configure TDX_CLIENT_ID and TDX_CLIENT_SECRET first."
@@ -139,6 +140,7 @@ Save-RemoteFile `
   -MinimumBytes 10000000
 
 $doubleTaipeiGtfs = Join-Path $dataRoot "gtfs_tdx_double_taipei.zip"
+$traGtfs = Join-Path $dataRoot "gtfs_tra.zip"
 $nationalArchive = Join-Path $dataRoot "tdx-national-static.zip"
 
 if ((Test-Path -LiteralPath $doubleTaipeiGtfs) -and -not $Force) {
@@ -147,7 +149,22 @@ if ((Test-Path -LiteralPath $doubleTaipeiGtfs) -and -not $Force) {
     -MinimumBytes 1000000 `
     -RequiredZipEntries @("agency.txt", "routes.txt", "stops.txt", "trips.txt", "stop_times.txt", "calendar.txt")
   Write-Host "Keeping existing file: $([System.IO.Path]::GetFileName($doubleTaipeiGtfs))"
-} else {
+}
+
+if ((Test-Path -LiteralPath $traGtfs) -and -not $Force) {
+  Assert-RemoteFile `
+    -Path $traGtfs `
+    -MinimumBytes 100000 `
+    -RequiredZipEntries @("agency.txt", "routes.txt", "stops.txt", "trips.txt", "stop_times.txt", "calendar_dates.txt")
+  Write-Host "Keeping existing file: $([System.IO.Path]::GetFileName($traGtfs))"
+}
+
+$needsNationalArchive =
+  $Force -or
+  -not (Test-Path -LiteralPath $doubleTaipeiGtfs) -or
+  -not (Test-Path -LiteralPath $traGtfs)
+
+if ($needsNationalArchive) {
   Save-RemoteFile `
     -Uri $NationalGtfsUrl `
     -Destination $nationalArchive `
@@ -155,10 +172,30 @@ if ((Test-Path -LiteralPath $doubleTaipeiGtfs) -and -not $Force) {
     -MinimumBytes 10000000 `
     -RequiredZipEntries @("agency.txt", "routes.txt", "stops.txt", "trips.txt", "stop_times.txt", "calendar.txt")
 
-  & $filterScript `
-    -SourceArchive $nationalArchive `
-    -DestinationArchive $doubleTaipeiGtfs `
-    -Force
+  if ($Force -or -not (Test-Path -LiteralPath $doubleTaipeiGtfs)) {
+    & $filterScript `
+      -SourceArchive $nationalArchive `
+      -DestinationArchive $doubleTaipeiGtfs `
+      -Force
+  }
+
+  if ($Force -or -not (Test-Path -LiteralPath $traGtfs)) {
+    $pythonCommand = Get-Command python3 -ErrorAction SilentlyContinue
+    if ($null -eq $pythonCommand) {
+      $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $pythonCommand) {
+      throw "Python 3 is required to extract the TRA GTFS feed."
+    }
+    & $pythonCommand.Source $operatorFilterScript `
+      --source $nationalArchive `
+      --destination $traGtfs `
+      --agency-id TRA `
+      --force
+    if ($LASTEXITCODE -ne 0) {
+      throw "TRA GTFS extraction failed with exit code $LASTEXITCODE."
+    }
+  }
 
   if (-not $KeepNationalArchive) {
     Remove-Item -LiteralPath $nationalArchive -Force

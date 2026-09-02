@@ -134,6 +134,7 @@ function Get-GtfsCoverage {
 $resolvedDataDirectory = (Resolve-Path -LiteralPath $DataDirectory).Path
 $busArchive = Join-Path $resolvedDataDirectory "gtfs_tdx_double_taipei.zip"
 $metroArchive = Join-Path $resolvedDataDirectory "gtfs_trtc.zip"
+$traArchive = Join-Path $resolvedDataDirectory "gtfs_tra.zip"
 $osmPath = Join-Path $resolvedDataDirectory "double-taipei.osm.pbf"
 $routerConfigPath = Join-Path $PSScriptRoot "router-config.json"
 
@@ -169,6 +170,7 @@ $report = [ordered]@{
   datasets = @(
     Get-GtfsCoverage -Name "Double Taipei bus" -ArchivePath $busArchive
     Get-GtfsCoverage -Name "Taipei Metro" -ArchivePath $metroArchive
+    Get-GtfsCoverage -Name "Taiwan Railway" -ArchivePath $traArchive
   )
   openStreetMap = $osm
   otp = [ordered]@{
