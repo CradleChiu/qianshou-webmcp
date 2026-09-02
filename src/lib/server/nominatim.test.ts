@@ -31,6 +31,7 @@ describe("OpenStreetMap Nominatim adapter", () => {
     const client = new NominatimClient(
       {
         searchUrl: "https://nominatim.example.test/search",
+        reverseUrl: "https://nominatim.example.test/reverse",
         userAgent: "Qianshou-Test/1.0",
         timeoutMs: 2_000,
       },
@@ -62,5 +63,41 @@ describe("OpenStreetMap Nominatim adapter", () => {
     expect(requests[0].init?.headers).toMatchObject({
       "user-agent": "Qianshou-Test/1.0",
     });
+  });
+
+  it("反向辨識剛取得的座標，不把座標當顯示名稱", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      jsonResponse({
+        place_id: 456,
+        lat: "25.0339",
+        lon: "121.5645",
+        name: "市政府",
+        display_name: "市政府, 信義區, 臺北市, 臺灣",
+        category: "amenity",
+        type: "townhall",
+        address: { city: "臺北市" },
+      }),
+    );
+    const client = new NominatimClient(
+      {
+        searchUrl: "https://nominatim.example.test/search",
+        reverseUrl: "https://nominatim.example.test/reverse",
+        userAgent: "Qianshou-Test/1.0",
+        timeoutMs: 2_000,
+      },
+      { fetcher },
+    );
+
+    await expect(client.reversePlace(25.0339, 121.5645)).resolves.toMatchObject({
+      name: "市政府",
+      description: "市政府, 信義區, 臺北市, 臺灣",
+      city: "Taipei",
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        searchParams: expect.any(URLSearchParams),
+      }),
+      expect.anything(),
+    );
   });
 });

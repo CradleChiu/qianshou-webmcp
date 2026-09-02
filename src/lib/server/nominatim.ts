@@ -7,6 +7,7 @@ import {
 
 export type NominatimConfig = {
   searchUrl: string;
+  reverseUrl: string;
   userAgent: string;
   timeoutMs: number;
 };
@@ -54,6 +55,33 @@ function cityCode(record: NominatimRecord): PlaceCandidate["city"] {
   if (locality.includes("新北")) return "NewTaipei";
   if (locality.includes("臺北")) return "Taipei";
   return null;
+}
+
+function mapRecord(record: NominatimRecord): PlaceCandidate | null {
+  const latitudeText = readText(record.lat);
+  const longitudeText = readText(record.lon);
+  const latitude = latitudeText === null ? Number.NaN : Number(latitudeText);
+  const longitude = longitudeText === null ? Number.NaN : Number(longitudeText);
+  const displayName = readText(record.display_name);
+  if (!displayName || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  const name = readText(record.name) ?? displayName.split(",")[0].trim();
+  const placeId =
+    typeof record.place_id === "string" || typeof record.place_id === "number"
+      ? String(record.place_id)
+      : `${latitude},${longitude}`;
+  return {
+    id: `osm:${placeId}`,
+    name,
+    description: displayName,
+    latitude,
+    longitude,
+    kind: placeKind(record),
+    source: "OpenStreetMap",
+    city: cityCode(record),
+    stopUid: null,
+  };
 }
 
 export class NominatimClient {
@@ -139,38 +167,7 @@ export class NominatimClient {
       }
 
       return (data as NominatimRecord[])
-        .map((record): PlaceCandidate | null => {
-          const latitudeText = readText(record.lat);
-          const longitudeText = readText(record.lon);
-          const latitude = latitudeText === null ? Number.NaN : Number(latitudeText);
-          const longitude =
-            longitudeText === null ? Number.NaN : Number(longitudeText);
-          const displayName = readText(record.display_name);
-          if (
-            !displayName ||
-            !Number.isFinite(latitude) ||
-            !Number.isFinite(longitude)
-          ) {
-            return null;
-          }
-          const name = readText(record.name) ?? displayName.split(",")[0].trim();
-          const placeId =
-            typeof record.place_id === "string" ||
-            typeof record.place_id === "number"
-              ? String(record.place_id)
-              : `${latitude},${longitude}`;
-          return {
-            id: `osm:${placeId}`,
-            name,
-            description: displayName,
-            latitude,
-            longitude,
-            kind: placeKind(record),
-            source: "OpenStreetMap",
-            city: cityCode(record),
-            stopUid: null,
-          };
-        })
+        .map(mapRecord)
         .filter((candidate): candidate is PlaceCandidate => Boolean(candidate));
     });
 
@@ -179,5 +176,51 @@ export class NominatimClient {
       expiresAt: this.now().getTime() + 24 * 60 * 60 * 1_000,
     });
     return candidates;
+  }
+
+  async reversePlace(
+    latitude: number,
+    longitude: number,
+  ): Promise<PlaceCandidate> {
+    return this.schedule(async () => {
+      const url = new URL(this.config.reverseUrl);
+      url.searchParams.set("lat", String(latitude));
+      url.searchParams.set("lon", String(longitude));
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("accept-language", "zh-TW,zh-Hant,en");
+      url.searchParams.set("zoom", "18");
+
+      const { data } = await fetchJson<unknown>(
+        "OpenStreetMap 目前位置辨識",
+        this.fetcher,
+        url,
+        {
+          headers: {
+            accept: "application/json",
+            "accept-language": "zh-TW,zh-Hant;q=0.9,en;q=0.5",
+            "user-agent": this.config.userAgent,
+          },
+          cache: "no-store",
+        },
+        this.config.timeoutMs,
+      );
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new ExternalServiceError(
+          "OpenStreetMap 目前位置辨識",
+          "invalid-response",
+          "OpenStreetMap 目前位置辨識回應格式錯誤。",
+        );
+      }
+      const candidate = mapRecord(data as NominatimRecord);
+      if (!candidate) {
+        throw new ExternalServiceError(
+          "OpenStreetMap 目前位置辨識",
+          "no-results",
+          "目前座標附近沒有可辨識的地址或地標。",
+        );
+      }
+      return candidate;
+    });
   }
 }

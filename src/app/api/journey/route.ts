@@ -64,6 +64,31 @@ function readOptionalCandidateId(
   return candidateId.trim();
 }
 
+function readOptionalAccuracy(
+  value: Record<string, unknown>,
+  key: "originAccuracyMeters" | "destinationAccuracyMeters" | "accuracyMeters",
+): number | undefined {
+  const accuracy = value[key];
+  return typeof accuracy === "number" &&
+    Number.isFinite(accuracy) &&
+    accuracy >= 0 &&
+    accuracy <= 10_000
+    ? Math.round(accuracy)
+    : undefined;
+}
+
+function readOptionalCapturedAt(
+  value: Record<string, unknown>,
+  key: "originCapturedAt" | "destinationCapturedAt",
+): string | undefined {
+  const capturedAt = value[key];
+  if (capturedAt === undefined) return undefined;
+  if (typeof capturedAt !== "string" || !Number.isFinite(Date.parse(capturedAt))) {
+    throw new Error("定位時間格式錯誤。");
+  }
+  return new Date(capturedAt).toISOString();
+}
+
 function readPreparationRequest(value: unknown): JourneyPreparationRequest {
   if (!isRecord(value) || !isRecord(value.preferences)) {
     throw new Error("行程參數格式錯誤。");
@@ -75,13 +100,20 @@ function readPreparationRequest(value: unknown): JourneyPreparationRequest {
       typeof value.originLabel === "string"
         ? readString(value, "originLabel", "起點名稱")
         : undefined,
-    originAccuracyMeters:
-      typeof value.originAccuracyMeters === "number" &&
-      Number.isFinite(value.originAccuracyMeters) &&
-      value.originAccuracyMeters >= 0 &&
-      value.originAccuracyMeters <= 10_000
-        ? Math.round(value.originAccuracyMeters)
+    originAccuracyMeters: readOptionalAccuracy(value, "originAccuracyMeters"),
+    originCapturedAt: readOptionalCapturedAt(value, "originCapturedAt"),
+    destinationLabel:
+      typeof value.destinationLabel === "string"
+        ? readString(value, "destinationLabel", "目的地名稱")
         : undefined,
+    destinationAccuracyMeters: readOptionalAccuracy(
+      value,
+      "destinationAccuracyMeters",
+    ),
+    destinationCapturedAt: readOptionalCapturedAt(
+      value,
+      "destinationCapturedAt",
+    ),
     originCandidateId: readOptionalCandidateId(value, "originCandidateId"),
     destinationCandidateId: readOptionalCandidateId(
       value,
@@ -176,7 +208,37 @@ function readIntentRequest(value: unknown): JourneyIntentRequest {
         : null,
     knownDestination: readOptionalIntentText(value, "knownDestination"),
     knownDestinationReference:
-      value.knownDestinationReference === "origin" ? "origin" : null,
+      value.knownDestinationReference === "origin" ||
+      value.knownDestinationReference === "current-location"
+        ? value.knownDestinationReference
+        : null,
+  };
+}
+
+function readCurrentLocationDescriptionRequest(value: unknown) {
+  if (!isRecord(value)) throw new Error("目前位置格式錯誤。");
+  const latitude = value.latitude;
+  const longitude = value.longitude;
+  const capturedAt = value.capturedAt;
+  if (
+    typeof latitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    latitude < 21.5 ||
+    latitude > 26.5 ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(longitude) ||
+    longitude < 119 ||
+    longitude > 123 ||
+    typeof capturedAt !== "string" ||
+    !Number.isFinite(Date.parse(capturedAt))
+  ) {
+    throw new Error("目前位置格式錯誤。");
+  }
+  return {
+    latitude,
+    longitude,
+    accuracyMeters: readOptionalAccuracy(value, "accuracyMeters") ?? 0,
+    capturedAt,
   };
 }
 
@@ -201,6 +263,13 @@ export async function POST(request: Request) {
       return Response.json(
         await journeyServices.prepareAccessibleJourney(
           readPreparationRequest(body.request),
+        ),
+      );
+    }
+    if (body.action === "describe-current-location") {
+      return Response.json(
+        await journeyServices.describeCurrentLocation(
+          readCurrentLocationDescriptionRequest(body.request),
         ),
       );
     }

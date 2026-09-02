@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CurrentLocationError,
   MAX_LOCATION_ACCURACY_METERS,
+  MAX_LOCATION_AGE_MILLISECONDS,
   requestCurrentLocation,
 } from "./current-location";
 
@@ -19,11 +20,12 @@ function provider(
 
 describe("current browser location", () => {
   it("returns a rounded one-shot coordinate without exposing it as a label", async () => {
+    const capturedAt = Date.parse("2026-09-02T08:00:00.000Z");
     const geolocation = provider((success, _failure, options) => {
       expect(options).toEqual({
         enableHighAccuracy: true,
-        timeout: 10_000,
-        maximumAge: 60_000,
+        timeout: 15_000,
+        maximumAge: 0,
       });
       success({
         coords: {
@@ -31,13 +33,17 @@ describe("current browser location", () => {
           longitude: 121.564_468_9,
           accuracy: 18.6,
         },
+        timestamp: capturedAt,
       } as GeolocationPosition);
     });
 
-    await expect(requestCurrentLocation(geolocation)).resolves.toEqual({
+    await expect(
+      requestCurrentLocation(geolocation, () => capturedAt + 1_000),
+    ).resolves.toEqual({
       latitude: 25.033_964_4,
       longitude: 121.564_468_9,
       accuracyMeters: 19,
+      capturedAt: "2026-09-02T08:00:00.000Z",
       query: "25.033964,121.564469",
       label: "目前位置",
     });
@@ -58,6 +64,7 @@ describe("current browser location", () => {
   });
 
   it("rejects a location that is too imprecise for transit planning", async () => {
+    const capturedAt = Date.now();
     const geolocation = provider((success) => {
       success({
         coords: {
@@ -65,6 +72,7 @@ describe("current browser location", () => {
           longitude: 121.56,
           accuracy: MAX_LOCATION_ACCURACY_METERS + 1,
         },
+        timestamp: capturedAt,
       } as GeolocationPosition);
     });
 
@@ -73,6 +81,24 @@ describe("current browser location", () => {
     );
     await expect(requestCurrentLocation(geolocation)).rejects.toMatchObject({
       code: "inaccurate",
+    });
+  });
+
+  it("rejects a location retained from a previous visit", async () => {
+    const now = Date.parse("2026-09-02T08:00:00.000Z");
+    const geolocation = provider((success) => {
+      success({
+        coords: {
+          latitude: 25.03,
+          longitude: 121.56,
+          accuracy: 20,
+        },
+        timestamp: now - MAX_LOCATION_AGE_MILLISECONDS - 1,
+      } as GeolocationPosition);
+    });
+
+    await expect(requestCurrentLocation(geolocation, () => now)).rejects.toMatchObject({
+      code: "stale",
     });
   });
 });

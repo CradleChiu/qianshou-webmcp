@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createIntentService, parseIntentResult } from "./intent-service";
 
 const readyResult = {
+  intentKind: "journey",
   origin: "台北車站",
   originReference: null,
   destination: "台大醫院",
@@ -36,6 +37,33 @@ describe("intent service", () => {
       originReference: "current-location",
       destination: "台大醫院",
     });
+  });
+
+  it("accepts current location as the destination", () => {
+    expect(
+      parseIntentResult({
+        ...readyResult,
+        origin: "淡水",
+        destination: null,
+        destinationReference: "current-location",
+      }),
+    ).toMatchObject({
+      origin: "淡水",
+      destination: null,
+      destinationReference: "current-location",
+    });
+  });
+
+  it("accepts a standalone current-location identification intent", () => {
+    expect(
+      parseIntentResult({
+        ...readyResult,
+        intentKind: "identify-current-location",
+        origin: null,
+        destination: null,
+        destinationReference: null,
+      }),
+    ).toMatchObject({ intentKind: "identify-current-location" });
   });
 
   it("calls only the configured loopback service", async () => {

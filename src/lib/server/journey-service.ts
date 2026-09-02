@@ -2,6 +2,7 @@ import {
   normalizeJourneyRequest,
   type JourneyPreparation,
   type JourneyPreparationRequest,
+  type CurrentLocationDescription,
   type JourneyPlan,
   type JourneyRequest,
   type PlaceCandidate,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/server/nominatim";
 
 type Environment = Record<string, string | undefined>;
+const MAX_SERVER_LOCATION_AGE_MILLISECONDS = 30_000;
 
 type JourneyServiceDependencies = {
   env?: Environment;
@@ -47,6 +49,7 @@ function runtimeEnvironment(): Environment {
     OTP_TIMEOUT_MS: process.env.OTP_TIMEOUT_MS,
     UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
     NOMINATIM_SEARCH_URL: process.env.NOMINATIM_SEARCH_URL,
+    NOMINATIM_REVERSE_URL: process.env.NOMINATIM_REVERSE_URL,
     NOMINATIM_USER_AGENT: process.env.NOMINATIM_USER_AGENT,
   };
 }
@@ -56,6 +59,9 @@ function nominatimConfig(env: Environment): NominatimConfig {
     searchUrl:
       env.NOMINATIM_SEARCH_URL?.trim() ||
       "https://nominatim.openstreetmap.org/search",
+    reverseUrl:
+      env.NOMINATIM_REVERSE_URL?.trim() ||
+      "https://nominatim.openstreetmap.org/reverse",
     userAgent:
       env.NOMINATIM_USER_AGENT?.trim() ||
       "Qianshou-Guolu-Zou/0.1 (Taiwan accessible trip planner)",
@@ -169,6 +175,14 @@ function dedupePlaceCandidates(candidates: PlaceCandidate[]): PlaceCandidate[] {
   });
 }
 
+function requireFreshLocation(capturedAt: string | undefined, now: Date) {
+  if (!capturedAt) return;
+  const age = now.getTime() - Date.parse(capturedAt);
+  if (age > MAX_SERVER_LOCATION_AGE_MILLISECONDS || age < -5_000) {
+    throw new Error("這次定位已經過期，請重新取得目前位置。");
+  }
+}
+
 export function createJourneyServices(
   dependencies: JourneyServiceDependencies = {},
 ) {
@@ -200,6 +214,23 @@ export function createJourneyServices(
   });
 
   const services = {
+    async describeCurrentLocation(request: {
+      latitude: number;
+      longitude: number;
+      accuracyMeters: number;
+      capturedAt: string;
+    }): Promise<CurrentLocationDescription> {
+      const place = await nominatim.reversePlace(
+        request.latitude,
+        request.longitude,
+      );
+      return {
+        name: place.name,
+        description: place.description,
+        accuracyMeters: request.accuracyMeters,
+        capturedAt: request.capturedAt,
+      };
+    },
     async searchPlaces(
       query: string,
     ): Promise<ServiceEnvelope<PlaceSearchResult>> {
@@ -606,6 +637,9 @@ export function createJourneyServices(
     async prepareAccessibleJourney(
       request: JourneyPreparationRequest,
     ): Promise<JourneyPreparation> {
+      const requestedAt = now();
+      requireFreshLocation(request.originCapturedAt, requestedAt);
+      requireFreshLocation(request.destinationCapturedAt, requestedAt);
       const originQuery = request.origin.trim();
       const destinationQuery = request.destination.trim();
       const [originSearch, destinationSearch] = await Promise.all([
@@ -616,6 +650,22 @@ export function createJourneyServices(
         originSearch,
         request.originCandidateId,
       );
+      const destination = selectedCandidate(
+        destinationSearch,
+        request.destinationCandidateId,
+      );
+      const [originReverse, destinationReverse] = await Promise.all([
+        request.originCapturedAt && selectedOrigin
+          ? nominatim
+              .reversePlace(selectedOrigin.latitude, selectedOrigin.longitude)
+              .catch(() => null)
+          : Promise.resolve(null),
+        request.destinationCapturedAt && destination
+          ? nominatim
+              .reversePlace(destination.latitude, destination.longitude)
+              .catch(() => null)
+          : Promise.resolve(null),
+      ]);
       const origin =
         selectedOrigin &&
         request.originLabel &&
@@ -624,15 +674,28 @@ export function createJourneyServices(
               ...selectedOrigin,
               name: request.originLabel,
               description:
-                request.originAccuracyMeters === undefined
+                originReverse?.description ??
+                (request.originAccuracyMeters === undefined
                   ? "這次行程使用的裝置定位"
-                  : `這次行程使用的裝置定位・誤差約 ${request.originAccuracyMeters} 公尺`,
+                  : `這次行程使用的裝置定位・誤差約 ${request.originAccuracyMeters} 公尺`),
+              city: originReverse?.city ?? selectedOrigin.city,
             }
           : selectedOrigin;
-      const destination = selectedCandidate(
-        destinationSearch,
-        request.destinationCandidateId,
-      );
+      const labeledDestination =
+        destination &&
+        request.destinationLabel &&
+        destination.id.startsWith("coordinate:")
+          ? {
+              ...destination,
+              name: request.destinationLabel,
+              description:
+                destinationReverse?.description ??
+                (request.destinationAccuracyMeters === undefined
+                  ? "這次行程使用的裝置定位"
+                  : `這次行程使用的裝置定位・誤差約 ${request.destinationAccuracyMeters} 公尺`),
+              city: destinationReverse?.city ?? destination.city,
+            }
+          : destination;
 
       if (
         !originSearch.data.candidates.length ||
@@ -643,7 +706,7 @@ export function createJourneyServices(
           state: "unavailable",
           message: `找不到可規劃的${missing}，請加入行政區、道路或站名後再試。`,
           origin,
-          destination,
+          destination: labeledDestination,
           confirmations: {
             ...(!originSearch.data.candidates.length
               ? { origin: originSearch }
@@ -655,12 +718,12 @@ export function createJourneyServices(
         };
       }
 
-      if (!origin || !destination) {
+      if (!origin || !labeledDestination) {
         return {
           state: "needs-confirmation",
           message: "找到多個同名或相近地點，請先確認正確的起點或目的地。",
           origin,
-          destination,
+          destination: labeledDestination,
           confirmations: {
             ...(!origin ? { origin: originSearch } : {}),
             ...(!destination ? { destination: destinationSearch } : {}),
@@ -669,26 +732,26 @@ export function createJourneyServices(
       }
 
       const sameLocation =
-        Math.abs(origin.latitude - destination.latitude) < 0.00001 &&
-        Math.abs(origin.longitude - destination.longitude) < 0.00001;
+        Math.abs(origin.latitude - labeledDestination.latitude) < 0.00001 &&
+        Math.abs(origin.longitude - labeledDestination.longitude) < 0.00001;
       if (sameLocation) {
         return {
           state: "unavailable",
           message: "起點和目的地是同一個地點，請確認後再試一次。",
           origin,
-          destination,
+          destination: labeledDestination,
           confirmations: {},
         };
       }
 
       const weatherPromise = services.getWeatherSafetyBrief(
-        weatherLocation(destination),
+        weatherLocation(labeledDestination),
       );
       const plan = await services.planAccessibleTrip({
         origin: `${origin.latitude.toFixed(6)},${origin.longitude.toFixed(6)}`,
-        destination: `${destination.latitude.toFixed(6)},${destination.longitude.toFixed(6)}`,
+        destination: `${labeledDestination.latitude.toFixed(6)},${labeledDestination.longitude.toFixed(6)}`,
         originLabel: origin.name,
-        destinationLabel: destination.name,
+        destinationLabel: labeledDestination.name,
         preferences: request.preferences,
       });
       const arrivals =
@@ -713,7 +776,7 @@ export function createJourneyServices(
             ? "地點已確認，但這次暫時無法規劃路線。"
             : "行前資訊已整理完成。",
         origin,
-        destination,
+        destination: labeledDestination,
         confirmations: {},
         plan,
         arrivals,

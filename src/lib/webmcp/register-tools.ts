@@ -1,4 +1,7 @@
-import { prepareAccessibleJourney } from "@/lib/client/journey-api";
+import {
+  describeCurrentLocation,
+  prepareAccessibleJourney,
+} from "@/lib/client/journey-api";
 import {
   currentLocationFailureMessage,
   isCurrentLocationReference,
@@ -66,9 +69,13 @@ const readOnlyAnnotations = {
   openWorldHint: true,
 } as const;
 
-function locationNeeded(message: string): JourneyPreparation {
+function locationNeeded(
+  message: string,
+  locationField: "origin" | "destination",
+): JourneyPreparation {
   return {
     state: "needs-location",
+    locationField,
     message,
     origin: null,
     destination: null,
@@ -76,19 +83,29 @@ function locationNeeded(message: string): JourneyPreparation {
   };
 }
 
-function redactCurrentLocation(result: JourneyPreparation): unknown {
-  if (!result.origin) return result;
+function redactedPlace(place: JourneyPreparation["origin"]) {
+  if (!place) return place;
+  return {
+    id: place.id,
+    name: place.name,
+    description: place.description,
+    kind: place.kind,
+    source: place.source,
+    city: place.city,
+    stopUid: place.stopUid,
+  };
+}
+
+function redactCurrentLocations(
+  result: JourneyPreparation,
+  fields: Array<"origin" | "destination">,
+): unknown {
   return {
     ...result,
-    origin: {
-      id: result.origin.id,
-      name: result.origin.name,
-      description: result.origin.description,
-      kind: result.origin.kind,
-      source: result.origin.source,
-      city: result.origin.city,
-      stopUid: result.origin.stopUid,
-    },
+    ...(fields.includes("origin") ? { origin: redactedPlace(result.origin) } : {}),
+    ...(fields.includes("destination")
+      ? { destination: redactedPlace(result.destination) }
+      : {}),
   };
 }
 
@@ -103,12 +120,13 @@ export async function registerJourneyTools(): Promise<{
   }
 
   const toolName = "prepare_accessible_journey";
+  const locationToolName = "describe_current_location";
 
   try {
     await modelContext.registerTool({
       name: toolName,
       description:
-        "Prepare a complete Taipei or New Taipei trip from the user's natural place names. If the user gives a destination but no origin, omit origin: the page will request one-time browser location permission and use the current position only if the user allows it. Never claim permission was granted, and never ask the user for coordinates. The service always prioritizes less walking, fewer transfers, and avoiding stairs identified in the available data; these are not user-configurable inputs and are not an accessibility guarantee. Only describe a result as relatively more suitable when its preferenceAssessment headline explicitly says so; otherwise state that accessibility is unknown. Never call a result an accessible or step-free route. This one action resolves both places, returns comparable route alternatives, checks the exact first transit arrival, and adds a 3-to-6-hour destination weather brief while updating the visible page. If state is needs-location, explain that the user can allow location in the page or say a nearby landmark. If state is needs-confirmation, ask one natural-language question using candidate names and descriptions, never expose candidate IDs, never guess, then call this same action again with the selected candidate ID. Speak to the user about their journey, not tools or implementation details.",
+        "Prepare a complete Taipei or New Taipei trip from natural place names. Treat words such as here, current location, 這裡, or 目前位置 according to their grammatical role: '從這裡到淡水' uses fresh browser location as origin, while '從淡水到這裡' uses it as destination. If the user gives only a destination, omit origin to use fresh browser location. Never reuse a previous journey's current location, claim permission was granted, or ask for coordinates. The service prioritizes less walking, fewer transfers, and avoiding identified stairs; this is not an accessibility guarantee. Only describe a result as relatively more suitable when its preferenceAssessment explicitly says so. If state is needs-location, explain that the user can allow location or say a nearby landmark. Speak about the journey, not tools or implementation details.",
       inputSchema: {
         type: "object",
         properties: {
@@ -119,7 +137,8 @@ export async function registerJourneyTools(): Promise<{
           },
           destination: {
             type: "string",
-            description: "The destination as the user naturally said it.",
+            description:
+              "The destination as naturally said. Use current-location when the user explicitly means here as the destination.",
           },
           originCandidateId: {
             type: "string",
@@ -150,6 +169,12 @@ export async function registerJourneyTools(): Promise<{
         let origin = input.origin;
         let originLabel: string | undefined;
         let originAccuracyMeters: number | undefined;
+        let originCapturedAt: string | undefined;
+        let destination = input.destination;
+        let destinationLabel: string | undefined;
+        let destinationAccuracyMeters: number | undefined;
+        let destinationCapturedAt: string | undefined;
+        const currentLocationFields: Array<"origin" | "destination"> = [];
 
         if (isCurrentLocationReference(origin)) {
           try {
@@ -157,8 +182,33 @@ export async function registerJourneyTools(): Promise<{
             origin = location.query;
             originLabel = location.label;
             originAccuracyMeters = location.accuracyMeters;
+            originCapturedAt = location.capturedAt;
+            currentLocationFields.push("origin");
           } catch (error) {
-            const result = locationNeeded(currentLocationFailureMessage(error));
+            const result = locationNeeded(
+              currentLocationFailureMessage(error),
+              "origin",
+            );
+            publishResult(toolName, result, input);
+            return result;
+          }
+        }
+        if (isCurrentLocationReference(destination)) {
+          if (currentLocationFields.includes("origin")) {
+            throw new Error("起點和目的地不能同時是目前位置。");
+          }
+          try {
+            const location = await requestCurrentLocation();
+            destination = location.query;
+            destinationLabel = location.label;
+            destinationAccuracyMeters = location.accuracyMeters;
+            destinationCapturedAt = location.capturedAt;
+            currentLocationFields.push("destination");
+          } catch (error) {
+            const result = locationNeeded(
+              currentLocationFailureMessage(error),
+              "destination",
+            );
             publishResult(toolName, result, input);
             return result;
           }
@@ -169,7 +219,11 @@ export async function registerJourneyTools(): Promise<{
           origin,
           originLabel,
           originAccuracyMeters,
-          destination: input.destination,
+          originCapturedAt,
+          destination,
+          destinationLabel,
+          destinationAccuracyMeters,
+          destinationCapturedAt,
           originCandidateId: input.originCandidateId,
           destinationCandidateId: input.destinationCandidateId,
           preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
@@ -177,8 +231,35 @@ export async function registerJourneyTools(): Promise<{
         publishResult(toolName, result, {
           ...input,
           origin: originLabel ?? input.origin,
+          destination: destinationLabel ?? input.destination,
         });
-        return originLabel ? redactCurrentLocation(result) : result;
+        return currentLocationFields.length
+          ? redactCurrentLocations(result, currentLocationFields)
+          : result;
+      },
+    });
+
+    await modelContext.registerTool({
+      name: locationToolName,
+      description:
+        "Use when the user asks where they currently are, such as '這裡是哪裡？' or '我現在在哪裡？'. Request a fresh one-time browser location, reject stale cached coordinates, reverse-geocode it to an approximate address or nearby place, update the visible page, and never expose coordinates.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      annotations: readOnlyAnnotations,
+      execute: async () => {
+        try {
+          const location = await requestCurrentLocation();
+          const result = await describeCurrentLocation(location);
+          publishResult(locationToolName, result);
+          return result;
+        } catch (error) {
+          const result = { error: currentLocationFailureMessage(error) };
+          publishResult(locationToolName, result);
+          return result;
+        }
       },
     });
 
@@ -187,12 +268,14 @@ export async function registerJourneyTools(): Promise<{
       cleanup: async () => {
         if (typeof modelContext.unregisterTool === "function") {
           await modelContext.unregisterTool(toolName);
+          await modelContext.unregisterTool(locationToolName);
         }
       },
     };
   } catch (error) {
     if (typeof modelContext.unregisterTool === "function") {
       await modelContext.unregisterTool(toolName);
+      await modelContext.unregisterTool(locationToolName);
     }
     console.error("WebMCP tool registration failed", error);
     return { status: "failed", cleanup: async () => undefined };

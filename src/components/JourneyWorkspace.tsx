@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
+  describeCurrentLocation,
   getVehicleArrivals as fetchVehicleArrivals,
   interpretJourneyIntent,
   prepareAccessibleJourney,
@@ -42,8 +43,10 @@ type IntentContext = {
   origin: string | null;
   originReference: "current-location" | null;
   destination: string | null;
-  destinationReference: "origin" | null;
+  destinationReference: "origin" | "current-location" | null;
 };
+
+type CurrentLocationUse = "origin" | "destination" | "identify";
 
 type PlaceSelection = {
   inputValue: string;
@@ -212,6 +215,8 @@ export function JourneyWorkspace() {
   const [announcement, setAnnouncement] = useState("");
   const [locationFeedback, setLocationFeedback] =
     useState<LocationFeedback | null>(null);
+  const [currentLocationUse, setCurrentLocationUse] =
+    useState<CurrentLocationUse | null>(null);
   const [placeSelections, setPlaceSelections] = useState<PlaceSelections>({});
   const [placeChoices, setPlaceChoices] = useState<PlaceChoices>({});
   const journeyRequestRef = useRef<HTMLTextAreaElement>(null);
@@ -262,20 +267,67 @@ export function JourneyWorkspace() {
     const handleToolResult = (event: Event) => {
       const { toolName, result, input } = (event as CustomEvent<WebMcpResultDetail>)
         .detail;
+      if (toolName === "describe_current_location") {
+        setCurrentLocationUse("identify");
+        if (
+          typeof result === "object" &&
+          result !== null &&
+          "error" in result &&
+          typeof result.error === "string"
+        ) {
+          setLocationFeedback({
+            state: "failed",
+            headline: "目前沒有取得新定位",
+            detail: result.error,
+          });
+          setAnnouncement(result.error);
+          return;
+        }
+        const place = result as {
+          name: string;
+          description: string;
+          accuracyMeters: number;
+          capturedAt: string;
+        };
+        setLocationFeedback({
+          state: "ready",
+          headline: `你目前約在${place.name}附近`,
+          detail: `${place.description}。${formatTimestamp(place.capturedAt)} 取得，定位誤差約 ${place.accuracyMeters} 公尺。`,
+        });
+        setIntentSummary(`目前約在${place.name}附近。`);
+        setAnnouncement(`你目前約在${place.name}附近。`);
+        return;
+      }
       if (toolName !== "prepare_accessible_journey" || !input) return;
       const originValue = typeof input.origin === "string" ? input.origin : "";
       const destinationValue =
         typeof input.destination === "string" ? input.destination : "";
       const preparation = result as JourneyPreparation;
       if (preparation.state === "needs-location") {
-        setDestination(destinationValue);
-        setIntentContext({
-          origin: null,
-          originReference: "current-location",
-          destination: destinationValue,
-          destinationReference: null,
-        });
-        setIntentSummary(`想從目前位置前往${destinationValue}。`);
+        const field = preparation.locationField ?? "origin";
+        setCurrentLocationUse(field);
+        setOrigin(field === "destination" ? originValue : "");
+        setDestination(field === "origin" ? destinationValue : "");
+        setIntentContext(
+          field === "origin"
+            ? {
+                origin: null,
+                originReference: "current-location",
+                destination: destinationValue,
+                destinationReference: null,
+              }
+            : {
+                origin: originValue,
+                originReference: null,
+                destination: null,
+                destinationReference: "current-location",
+              },
+        );
+        setIntentSummary(
+          field === "origin"
+            ? `想從目前位置前往${destinationValue}。`
+            : `想從${originValue}前往目前位置。`,
+        );
         setLocationFeedback({
           state: "failed",
           headline: "目前沒有取得定位",
@@ -353,9 +405,6 @@ export function JourneyWorkspace() {
       arrivals: preparation.arrivals,
       weather: preparation.weather,
     });
-    if (preparation.origin?.name === "目前位置") {
-      setLocationFeedback(null);
-    }
     const hasInputProblem =
       preparation.state === "unavailable" && !preparation.plan;
     setError(hasInputProblem ? preparation.message : "");
@@ -370,7 +419,12 @@ export function JourneyWorkspace() {
   async function prepareResolvedJourney(
     normalizedOrigin: string,
     normalizedDestination: string,
-    currentLocation?: { label: string; accuracyMeters: number },
+    currentLocation?: {
+      field: PlaceField;
+      label: string;
+      accuracyMeters: number;
+      capturedAt: string;
+    },
   ) {
     const existingOrigin =
       placeSelections.origin?.inputValue === normalizedOrigin
@@ -383,22 +437,53 @@ export function JourneyWorkspace() {
     const originQuery = existingOrigin?.id.startsWith("coordinate:")
       ? `${existingOrigin.latitude.toFixed(6)},${existingOrigin.longitude.toFixed(6)}`
       : normalizedOrigin;
+    const destinationQuery = existingDestination?.id.startsWith("coordinate:")
+      ? `${existingDestination.latitude.toFixed(6)},${existingDestination.longitude.toFixed(6)}`
+      : normalizedDestination;
     const preparation = await prepareAccessibleJourney({
       origin: originQuery,
-      destination: normalizedDestination,
+      destination: destinationQuery,
       originLabel:
-        currentLocation?.label ??
-        (existingOrigin?.id.startsWith("coordinate:")
-          ? existingOrigin.name
-          : undefined),
-      originAccuracyMeters: currentLocation?.accuracyMeters,
+        currentLocation?.field === "origin"
+          ? currentLocation.label
+          : existingOrigin?.id.startsWith("coordinate:")
+            ? existingOrigin.name
+            : undefined,
+      originAccuracyMeters:
+        currentLocation?.field === "origin"
+          ? currentLocation.accuracyMeters
+          : undefined,
+      originCapturedAt:
+        currentLocation?.field === "origin"
+          ? currentLocation.capturedAt
+          : undefined,
+      destinationLabel:
+        currentLocation?.field === "destination"
+          ? currentLocation.label
+          : existingDestination?.id.startsWith("coordinate:")
+            ? existingDestination.name
+            : undefined,
+      destinationAccuracyMeters:
+        currentLocation?.field === "destination"
+          ? currentLocation.accuracyMeters
+          : undefined,
+      destinationCapturedAt:
+        currentLocation?.field === "destination"
+          ? currentLocation.capturedAt
+          : undefined,
       originCandidateId: existingOrigin?.id,
       destinationCandidateId: existingDestination?.id,
       preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
     });
     applyPreparation(preparation, {
-      origin: currentLocation?.label ?? normalizedOrigin,
-      destination: normalizedDestination,
+      origin:
+        currentLocation?.field === "origin"
+          ? currentLocation.label
+          : normalizedOrigin,
+      destination:
+        currentLocation?.field === "destination"
+          ? currentLocation.label
+          : normalizedDestination,
     });
     if (preparation.state === "needs-confirmation") {
       setAnnouncement(preparation.message);
@@ -417,7 +502,11 @@ export function JourneyWorkspace() {
     window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
   }
 
-  async function prepareFromCurrentLocation(normalizedDestination: string) {
+  async function prepareWithCurrentLocation(
+    field: PlaceField,
+    otherPlace: string,
+  ) {
+    setCurrentLocationUse(field);
     setLocationFeedback({
       state: "requesting",
       headline: "正在取得目前位置",
@@ -430,18 +519,24 @@ export function JourneyWorkspace() {
       setLocationFeedback({
         state: "ready",
         headline: "已取得目前位置",
-        detail: `定位誤差約 ${location.accuracyMeters} 公尺，只用於這次行程。`,
+        detail: `${formatTimestamp(location.capturedAt)} 取得，定位誤差約 ${location.accuracyMeters} 公尺，只用於這次行程。`,
       });
       setClarificationQuestion(null);
-      setOrigin(location.label);
-      setDestination(normalizedDestination);
+      setOrigin(field === "origin" ? location.label : otherPlace);
+      setDestination(field === "destination" ? location.label : otherPlace);
       setPlaceSelections({});
       setPlaceChoices({});
-      setAnnouncement("已取得目前位置，正在確認目的地與路線。");
-      await prepareResolvedJourney(location.query, normalizedDestination, {
-        label: location.label,
-        accuracyMeters: location.accuracyMeters,
-      });
+      setAnnouncement("已取得剛更新的位置，正在確認地點與路線。");
+      await prepareResolvedJourney(
+        field === "origin" ? location.query : otherPlace,
+        field === "destination" ? location.query : otherPlace,
+        {
+          field,
+          label: location.label,
+          accuracyMeters: location.accuracyMeters,
+          capturedAt: location.capturedAt,
+        },
+      );
     } catch (caught) {
       const message = currentLocationFailureMessage(caught);
       setLocationFeedback({
@@ -459,14 +554,51 @@ export function JourneyWorkspace() {
     }
   }
 
+  async function identifyCurrentLocation() {
+    setCurrentLocationUse("identify");
+    setLocationFeedback({
+      state: "requesting",
+      headline: "正在更新目前位置",
+      detail: "這次會重新取得位置，不沿用先前行程的座標。",
+    });
+    setAnnouncement("正在重新取得目前位置。");
+    try {
+      const location = await requestCurrentLocation();
+      const place = await describeCurrentLocation(location);
+      setLocationFeedback({
+        state: "ready",
+        headline: `你目前約在${place.name}附近`,
+        detail: `${place.description}。${formatTimestamp(place.capturedAt)} 取得，定位誤差約 ${place.accuracyMeters} 公尺。`,
+      });
+      setIntentSummary(`目前約在${place.name}附近。`);
+      setClarificationQuestion(null);
+      setAnnouncement(`你目前約在${place.name}附近。`);
+    } catch (caught) {
+      const message = currentLocationFailureMessage(caught);
+      setLocationFeedback({
+        state: "failed",
+        headline: "目前沒有取得新定位",
+        detail: message,
+      });
+      setAnnouncement(message);
+    }
+  }
+
   async function retryCurrentLocation() {
-    const normalizedDestination = journeyDestinationQuery(intentContext);
-    if (!normalizedDestination) return;
     setBusy(true);
     setError("");
     setRequestInvalid(false);
     try {
-      await prepareFromCurrentLocation(normalizedDestination);
+      if (currentLocationUse === "identify") {
+        await identifyCurrentLocation();
+      } else if (currentLocationUse === "destination" && intentContext.origin) {
+        await prepareWithCurrentLocation("destination", intentContext.origin);
+      } else {
+        const normalizedDestination = journeyDestinationQuery(intentContext);
+        if (normalizedDestination) {
+          await prepareWithCurrentLocation("origin", normalizedDestination);
+        }
+      }
     } finally {
       setBusy(false);
     }
@@ -484,7 +616,9 @@ export function JourneyWorkspace() {
       !intentDirty &&
       !placeChoices.origin &&
       !placeChoices.destination &&
-      Boolean(confirmedOrigin && confirmedDestination);
+      Boolean(confirmedOrigin && confirmedDestination) &&
+      confirmedOrigin?.name !== "目前位置" &&
+      confirmedDestination?.name !== "目前位置";
 
     if (!canReuseConfirmedPlaces && utterance.length < 2) {
       setError("請說出你想去哪裡，或你現在附近有什麼地標。");
@@ -526,6 +660,11 @@ export function JourneyWorkspace() {
       setIntentSummary(intent.understoodIntent);
       setIntentDirty(false);
 
+      if (intent.intentKind === "identify-current-location") {
+        await identifyCurrentLocation();
+        return;
+      }
+
       if (intent.needsClarification) {
         setClarificationQuestion(intent.clarificationQuestion);
         setJourneyRequest("");
@@ -536,12 +675,19 @@ export function JourneyWorkspace() {
       }
 
       const normalizedOrigin = intent.origin;
+      if (
+        intent.destinationReference === "current-location" &&
+        normalizedOrigin
+      ) {
+        await prepareWithCurrentLocation("destination", normalizedOrigin);
+        return;
+      }
       const normalizedDestination = journeyDestinationQuery(intent);
       if (!normalizedDestination) {
         throw new Error("目前還無法確認完整的起點與目的地。");
       }
       if (intent.originReference === "current-location") {
-        await prepareFromCurrentLocation(normalizedDestination);
+        await prepareWithCurrentLocation("origin", normalizedDestination);
         return;
       }
       if (!normalizedOrigin) {
@@ -877,7 +1023,7 @@ export function JourneyWorkspace() {
                   </p>
                   <p>{locationFeedback.detail}</p>
                   {locationFeedback.state === "failed" &&
-                  intentContext.destination ? (
+                  currentLocationUse ? (
                     <button
                       className="location-retry"
                       type="button"

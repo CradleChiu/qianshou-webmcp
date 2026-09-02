@@ -1,9 +1,12 @@
 export const MAX_LOCATION_ACCURACY_METERS = 250;
+export const MAX_LOCATION_AGE_MILLISECONDS = 15_000;
+const LOCATION_TIMEOUT_MILLISECONDS = 15_000;
 
 export type CurrentLocation = {
   latitude: number;
   longitude: number;
   accuracyMeters: number;
+  capturedAt: string;
   query: string;
   label: "目前位置";
 };
@@ -13,7 +16,8 @@ export type CurrentLocationErrorCode =
   | "permission-denied"
   | "unavailable"
   | "timeout"
-  | "inaccurate";
+  | "inaccurate"
+  | "stale";
 
 export class CurrentLocationError extends Error {
   constructor(
@@ -35,7 +39,7 @@ function browserError(error: GeolocationPositionError): CurrentLocationError {
   if (error.code === 3) {
     return new CurrentLocationError(
       "timeout",
-      "定位等候超過 10 秒。請再試一次，或說你附近的店家、路口、車站或地址。",
+      "定位等候超過 15 秒。請再試一次，或說你附近的店家、路口、車站或地址。",
     );
   }
   return new CurrentLocationError(
@@ -46,6 +50,7 @@ function browserError(error: GeolocationPositionError): CurrentLocationError {
 
 export function requestCurrentLocation(
   provider?: Geolocation | null,
+  now: () => number = Date.now,
 ): Promise<CurrentLocation> {
   const geolocation =
     provider === undefined
@@ -69,16 +74,32 @@ export function requestCurrentLocation(
         const latitude = position.coords.latitude;
         const longitude = position.coords.longitude;
         const accuracyMeters = position.coords.accuracy;
+        const capturedAt = position.timestamp;
 
         if (
           !Number.isFinite(latitude) ||
           !Number.isFinite(longitude) ||
-          !Number.isFinite(accuracyMeters)
+          !Number.isFinite(accuracyMeters) ||
+          !Number.isFinite(capturedAt)
         ) {
           reject(
             new CurrentLocationError(
               "unavailable",
               "裝置回傳的位置不完整。請說你附近的店家、路口、車站或地址。",
+            ),
+          );
+          return;
+        }
+
+        const ageMilliseconds = now() - capturedAt;
+        if (
+          ageMilliseconds > MAX_LOCATION_AGE_MILLISECONDS ||
+          ageMilliseconds < -5_000
+        ) {
+          reject(
+            new CurrentLocationError(
+              "stale",
+              "裝置回傳的是先前的位置，不是剛取得的位置。請重新開啟裝置定位後再試一次。",
             ),
           );
           return;
@@ -98,6 +119,7 @@ export function requestCurrentLocation(
           latitude,
           longitude,
           accuracyMeters: Math.max(0, Math.round(accuracyMeters)),
+          capturedAt: new Date(capturedAt).toISOString(),
           query: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
           label: "目前位置",
         });
@@ -105,8 +127,8 @@ export function requestCurrentLocation(
       (error) => reject(browserError(error)),
       {
         enableHighAccuracy: true,
-        timeout: 10_000,
-        maximumAge: 60_000,
+        timeout: LOCATION_TIMEOUT_MILLISECONDS,
+        maximumAge: 0,
       },
     );
   });
@@ -115,12 +137,14 @@ export function requestCurrentLocation(
 export function currentLocationFailureMessage(error: unknown): string {
   return error instanceof CurrentLocationError
     ? error.message
-    : "目前無法取得位置。請說你附近的店家、路口、車站或地址。";
+    : error instanceof Error && error.message.trim()
+      ? error.message
+      : "目前無法取得位置。請說你附近的店家、路口、車站或地址。";
 }
 
 export function isCurrentLocationReference(value: string | undefined): boolean {
   if (!value) return true;
-  return /^(?:目前位置|現在位置|這裡|我附近|現在這裡)$/.test(
+  return /^(?:current-location|目前位置|現在位置|我的位置|這裡|我附近|現在這裡)$/.test(
     value.trim().replaceAll("臺", "台"),
   );
 }

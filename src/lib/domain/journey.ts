@@ -134,13 +134,25 @@ export type JourneyPreparationRequest = {
   destination: string;
   originLabel?: string;
   originAccuracyMeters?: number;
+  originCapturedAt?: string;
+  destinationLabel?: string;
+  destinationAccuracyMeters?: number;
+  destinationCapturedAt?: string;
   originCandidateId?: string;
   destinationCandidateId?: string;
   preferences: JourneyPreferences;
 };
 
+export type CurrentLocationDescription = {
+  name: string;
+  description: string;
+  accuracyMeters: number;
+  capturedAt: string;
+};
+
 export type JourneyPreparation = {
   state: "needs-location" | "needs-confirmation" | "ready" | "unavailable";
+  locationField?: "origin" | "destination";
   message: string;
   origin: PlaceCandidate | null;
   destination: PlaceCandidate | null;

@@ -1,4 +1,5 @@
 import type {
+  CurrentLocationDescription,
   JourneyPlan,
   JourneyPreparation,
   JourneyPreparationRequest,
@@ -19,6 +20,15 @@ type JourneyAction =
   | { action: "prepare"; request: JourneyPreparationRequest }
   | { action: "plan"; request: JourneyRequest }
   | { action: "places"; query: string }
+  | {
+      action: "describe-current-location";
+      request: {
+        latitude: number;
+        longitude: number;
+        accuracyMeters: number;
+        capturedAt: string;
+      };
+    }
   | ({ action: "arrivals" } & VehicleArrivalRequest)
   | { action: "weather"; location: string };
 
@@ -54,6 +64,23 @@ export function interpretJourneyIntent(
   request: JourneyIntentRequest,
 ): Promise<JourneyIntentResult> {
   return requestJourney<JourneyIntentResult>({ action: "interpret", request });
+}
+
+export function describeCurrentLocation(request: {
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  capturedAt: string;
+}): Promise<CurrentLocationDescription> {
+  return requestJourney<CurrentLocationDescription>({
+    action: "describe-current-location",
+    request: {
+      latitude: request.latitude,
+      longitude: request.longitude,
+      accuracyMeters: request.accuracyMeters,
+      capturedAt: request.capturedAt,
+    },
+  });
 }
 
 export function planAccessibleTrip(

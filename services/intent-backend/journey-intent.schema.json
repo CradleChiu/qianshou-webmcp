@@ -3,6 +3,10 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "intentKind": {
+      "type": "string",
+      "enum": ["journey", "identify-current-location"]
+    },
     "origin": {
       "type": ["string", "null"]
     },
@@ -15,7 +19,7 @@
     },
     "destinationReference": {
       "type": ["string", "null"],
-      "enum": ["origin", null]
+      "enum": ["origin", "current-location", null]
     },
     "needsClarification": {
       "type": "boolean"
@@ -36,6 +40,7 @@
     }
   },
   "required": [
+    "intentKind",
     "origin",
     "originReference",
     "destination",

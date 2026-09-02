@@ -28,6 +28,7 @@ test("rejects an incomplete final result", () => {
   assert.throws(
     () =>
       validateInterpretResult({
+        intentKind: "journey",
         origin: null,
         originReference: null,
         destination: "台大醫院",
@@ -45,6 +46,7 @@ test("rejects an incomplete final result", () => {
 test("accepts current location as the default origin", () => {
   assert.deepEqual(
     validateInterpretResult({
+      intentKind: "journey",
       origin: null,
       originReference: "current-location",
       destination: "台北101",
@@ -56,6 +58,7 @@ test("accepts current location as the default origin", () => {
       confidence: "high",
     }),
     {
+      intentKind: "journey",
       origin: null,
       originReference: "current-location",
       destination: "台北101",
@@ -66,6 +69,53 @@ test("accepts current location as the default origin", () => {
       understoodIntent: "從目前位置前往台北101",
       confidence: "high",
     },
+  );
+});
+
+test("accepts current location as the destination without reversing direction", () => {
+  assert.deepEqual(
+    validateInterpretResult({
+      intentKind: "journey",
+      origin: "淡水",
+      originReference: null,
+      destination: null,
+      destinationReference: "current-location",
+      needsClarification: false,
+      clarificationTarget: null,
+      clarificationQuestion: null,
+      understoodIntent: "從淡水前往目前位置",
+      confidence: "high",
+    }),
+    {
+      intentKind: "journey",
+      origin: "淡水",
+      originReference: null,
+      destination: null,
+      destinationReference: "current-location",
+      needsClarification: false,
+      clarificationTarget: null,
+      clarificationQuestion: null,
+      understoodIntent: "從淡水前往目前位置",
+      confidence: "high",
+    },
+  );
+});
+
+test("accepts asking where the user currently is", () => {
+  assert.equal(
+    validateInterpretResult({
+      intentKind: "identify-current-location",
+      origin: null,
+      originReference: null,
+      destination: null,
+      destinationReference: null,
+      needsClarification: false,
+      clarificationTarget: null,
+      clarificationQuestion: null,
+      understoodIntent: "想知道目前所在位置",
+      confidence: "high",
+    }).intentKind,
+    "identify-current-location",
   );
 });
 
@@ -105,6 +155,7 @@ test("interprets a validated result from the isolated runner", async () => {
         await writeFile(
           args[outputIndex],
           JSON.stringify({
+            intentKind: "journey",
             origin: "台北車站",
             originReference: null,
             destination: "台大醫院",

@@ -32,12 +32,22 @@ function readOptionalText(
 
 export function parseIntentResult(value: unknown): JourneyIntentResult {
   if (!isRecord(value)) throw new Error("需求理解服務回覆格式錯誤。");
+  const intentKind =
+    value.intentKind === "identify-current-location"
+      ? "identify-current-location"
+      : value.intentKind === "journey"
+        ? "journey"
+        : null;
+  if (!intentKind) throw new Error("需求類型格式錯誤。");
   const origin = readOptionalText(value.origin, "起點", 80);
   const originReference =
     value.originReference === "current-location" ? "current-location" : null;
   const destination = readOptionalText(value.destination, "目的地", 80);
   const destinationReference =
-    value.destinationReference === "origin" ? "origin" : null;
+    value.destinationReference === "origin" ||
+    value.destinationReference === "current-location"
+      ? value.destinationReference
+      : null;
   const needsClarification = value.needsClarification;
   if (typeof needsClarification !== "boolean") {
     throw new Error("需求理解狀態格式錯誤。");
@@ -74,16 +84,28 @@ export function parseIntentResult(value: unknown): JourneyIntentResult {
     throw new Error("需求理解服務未提供完整追問。");
   }
   if (
+    intentKind === "journey" &&
     !needsClarification &&
-    ((!origin && originReference !== "current-location") || !destination)
+    ((!origin && originReference !== "current-location") ||
+      (!destination && destinationReference !== "current-location"))
   ) {
     throw new Error("需求理解服務未提供完整地點。");
   }
   if (origin && originReference) {
     throw new Error("需求理解服務同時提供地點與目前位置。");
   }
+  if (destination && destinationReference === "current-location") {
+    throw new Error("需求理解服務同時提供目的地與目前位置。");
+  }
+  if (
+    intentKind === "identify-current-location" &&
+    (origin || originReference || destination || destinationReference || needsClarification)
+  ) {
+    throw new Error("辨識目前位置不應包含行程地點。");
+  }
 
   return {
+    intentKind,
     origin,
     originReference,
     destination,
