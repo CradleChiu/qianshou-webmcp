@@ -50,4 +50,22 @@ describe("mergePlaceCandidates", () => {
 
     expect(result).toHaveLength(2);
   });
+
+  it("同一站體的 OSM 車站節點可合併", () => {
+    const result = mergePlaceCandidates("中央車站", [
+      candidate("building", "中央車站", 25, "station"),
+      candidate("platform-node", "中央車站", 25.003, "station"),
+    ]);
+
+    expect(result).toHaveLength(1);
+  });
+
+  it("不把鐵路或捷運站體與附近公車站牌合併", () => {
+    const result = mergePlaceCandidates("中央車站", [
+      candidate("rail-station", "中央車站", 25, "station"),
+      candidate("bus-stop", "中央車站", 25.0001, "transit-stop"),
+    ]);
+
+    expect(result).toHaveLength(2);
+  });
 });

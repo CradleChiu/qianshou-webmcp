@@ -103,4 +103,44 @@ describe("OpenStreetMap Nominatim adapter", () => {
       expect.anything(),
     );
   });
+
+  it("將站房與交通建築辨識為車站，而不是一般地標", async () => {
+    const fetcher: ServerFetch = vi.fn(async () =>
+      jsonResponse([
+        {
+          place_id: 701,
+          lat: "25.0477",
+          lon: "121.5171",
+          name: "中央車站",
+          display_name: "中央車站, 中正區, 臺北市, 臺灣",
+          category: "building",
+          type: "train_station",
+          address: { city: "臺北市" },
+        },
+        {
+          place_id: 702,
+          lat: "25.0487",
+          lon: "121.5143",
+          name: "中央車站",
+          display_name: "中央車站, 中正區, 臺北市, 臺灣",
+          category: "building",
+          type: "transportation",
+          address: { city: "臺北市" },
+        },
+      ]),
+    );
+    const client = new NominatimClient(
+      {
+        searchUrl: "https://nominatim.example.test/search",
+        reverseUrl: "https://nominatim.example.test/reverse",
+        userAgent: "Qianshou-Test/1.0",
+        timeoutMs: 2_000,
+      },
+      { fetcher },
+    );
+
+    const result = await client.searchPlaces("中央車站");
+
+    expect(result.map(({ kind }) => kind)).toEqual(["station", "station"]);
+  });
 });

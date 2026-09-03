@@ -36,8 +36,23 @@ function readText(value: unknown): string | null {
 function placeKind(record: NominatimRecord): PlaceCandidate["kind"] {
   const category = readText(record.category);
   const type = readText(record.type);
-  if (category === "railway" || type === "station") return "station";
-  if (category === "highway" && type === "bus_stop") return "transit-stop";
+  const name = readText(record.name)?.replaceAll("台", "臺") ?? "";
+  if (
+    category === "railway" ||
+    type === "station" ||
+    type === "train_station" ||
+    (category === "public_transport" && type === "stop_area") ||
+    (type === "transportation" && /(?:車站|捷運站|火車站)$/.test(name))
+  ) {
+    return "station";
+  }
+  if (
+    (category === "highway" && type === "bus_stop") ||
+    (category === "public_transport" &&
+      (type === "platform" || type === "stop_position"))
+  ) {
+    return "transit-stop";
+  }
   if (category === "place" || category === "boundary") return "address";
   return "landmark";
 }
