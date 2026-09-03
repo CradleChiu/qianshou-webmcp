@@ -330,7 +330,7 @@ function displayedItineraryTiming(
   }
   let remaining =
     movementTarget -
-    legMinutes.reduce(
+    legMinutes.reduce<number>(
       (total, value) => total + (typeof value === "number" ? value : 0),
       0,
     );
