@@ -612,6 +612,29 @@ function parseTransferHubs(
     );
 }
 
+function interleaveTransferHubs(
+  originHubs: ResolvedOtpPlace[],
+  destinationHubs: ResolvedOtpPlace[],
+): ResolvedOtpPlace[] {
+  const interleaved: ResolvedOtpPlace[] = [];
+  const length = Math.max(originHubs.length, destinationHubs.length);
+  for (let index = 0; index < length; index += 1) {
+    if (originHubs[index]) interleaved.push(originHubs[index]);
+    if (destinationHubs[index]) interleaved.push(destinationHubs[index]);
+  }
+  return interleaved
+    .filter((hub, index, all) => {
+      const name = normalizedTransferHubName(hub.canonicalName);
+      return (
+        all.findIndex(
+          (candidate) =>
+            normalizedTransferHubName(candidate.canonicalName) === name,
+        ) === index
+      );
+    })
+    .slice(0, MAX_TRANSFER_HUBS);
+}
+
 function itineraryMetric(
   itinerary: OtpItinerary,
   key: "duration" | "walkTime" | "numberOfTransfers",
@@ -1327,7 +1350,14 @@ export class OtpClient {
 
     if (this.shouldAttemptTransitRescue(candidates)) {
       try {
-        const transferHubs = await this.discoverTransferHubs(origin);
+        const hubResults = await Promise.allSettled([
+          this.discoverTransferHubs(origin),
+          this.discoverTransferHubs(destination),
+        ]);
+        const transferHubs = interleaveTransferHubs(
+          hubResults[0].status === "fulfilled" ? hubResults[0].value : [],
+          hubResults[1].status === "fulfilled" ? hubResults[1].value : [],
+        );
         const fallback = await this.planViaTransferHubs(
           request,
           origin,

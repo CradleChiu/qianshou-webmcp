@@ -209,19 +209,25 @@ describe("OTP route candidate selection", () => {
       from: "中央轉運站",
       to: "目的地站",
     });
-    const responses = [
-      planBody([longWalk]),
-      transferHubs,
-      planBody([firstSegment]),
-      planBody([secondSegment]),
-    ];
     const bodies: Array<Record<string, unknown>> = [];
+    let planCall = 0;
     const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
       _input: RequestInfo | URL,
       init?: ServerRequestInit,
     ) => {
-      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-      return Response.json(responses.shift());
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body.operationName === "DiscoverTransferHubs") {
+        return Response.json(transferHubs);
+      }
+      planCall += 1;
+      return Response.json(
+        planCall === 1
+          ? planBody([longWalk])
+          : planCall === 2
+            ? planBody([firstSegment])
+            : planBody([secondSegment]),
+      );
     });
     const routeCandidateSelector = vi.fn(
       async ({ candidates }: RouteCandidateSelectionRequest) => ({
@@ -246,12 +252,12 @@ describe("OTP route candidate selection", () => {
 
     const result = await client.planAccessibleTrip(request, origin, destination);
 
-    expect(bodies.map((body) => body.operationName)).toEqual([
-      "PlanAccessibleTrip",
-      "DiscoverTransferHubs",
-      "PlanAccessibleTrip",
-      "PlanAccessibleTrip",
-    ]);
+    expect(
+      bodies.filter((body) => body.operationName === "DiscoverTransferHubs"),
+    ).toHaveLength(2);
+    expect(
+      bodies.filter((body) => body.operationName === "PlanAccessibleTrip"),
+    ).toHaveLength(3);
     expect(routeCandidateSelector).toHaveBeenCalledOnce();
     expect(result.data.firstTransitLeg).not.toBeNull();
     expect(result.data.estimatedMinutes).toBe(35);
