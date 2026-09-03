@@ -21,6 +21,15 @@ TDX 現行全臺 GTFS 端點為 `/api/gtfs/V3/Map/GTFS/Static`。舊版的臺北
 docker compose -f .\infra\otp\docker-compose.yml up -d
 ```
 
+正式環境應將 `OTP_DATA_DIRECTORY` 指向 release 目錄之外的共享圖資目錄，避免切換 `current` release 時讓既有容器繼續掛載舊圖。例如：
+
+```powershell
+$env:OTP_DATA_DIRECTORY = "/srv/qianshou/otp-data/current"
+docker compose -f .\infra\otp\docker-compose.yml up -d
+```
+
+該目錄必須包含 `graph.obj`。正式雙北 graph 也必須由公車、臺北捷運、台鐵 GTFS 與 OpenStreetMap 一起建立；不得用 release 內空的 `infra/otp/data` 取代共享圖資。
+
 `crop-osm.ps1` 只讀取雙北公車與臺北捷運兩份 GTFS 的 `stops.txt`，以最外圍站點加上 0.05 度（約 5 公里）邊界裁切 OSM。台鐵 feed 可包含全臺班次，但不會把街道路網重新膨脹為全臺範圍。2026-08-31 實測把 326 MB 全臺 PBF 降為 110 MB，graph 由約 939 MB 降為 96.6 MB；street graph 由 1,497,329 vertices／3,916,081 edges 降為 416,129 vertices／1,148,080 edges，同時保留 61,982 stops 與 1,652 patterns。
 
 `build-config.json` 依 OTP 官方建議同時預算一般步行與 wheelchair 兩組 stop-to-stop transfer；只建立 wheelchair transfer 會讓一般搜尋缺少捷運、台鐵等跨運具轉乘。兩組皆沿用產品的少走路成本。`router-config.json` 不在啟動時預填整張圖的 RAPTOR cache；`otp-config.json` 啟用 `OnDemandRaptorTransfer`，在實際區域查詢時才計算。正式容器使用 2 GiB Java heap、3 GiB cgroup 上限與 1 GiB reservation；實際路線查詢後約使用 1.3–1.5 GiB，載圖至可服務約 31 秒。
