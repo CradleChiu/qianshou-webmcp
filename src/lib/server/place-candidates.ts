@@ -3,7 +3,7 @@ import type { PlaceCandidate } from "@/lib/domain/journey";
 const EARTH_RADIUS_METERS = 6_371_000;
 const SAME_BUS_STOP_DISTANCE_METERS = 60;
 const SAME_STATION_DISTANCE_METERS = 450;
-const SAME_PLACE_DISTANCE_METERS = 60;
+const SAME_PLACE_DISTANCE_METERS = 300;
 const BUS_STOP_ALIAS_DISTANCE_METERS = 80;
 const STATION_ALIAS_DISTANCE_METERS = 500;
 const PLACE_ALIAS_DISTANCE_METERS = 800;
@@ -108,7 +108,7 @@ export function mergePlaceCandidates(
     groups.set(root, group);
   });
 
-  return [...groups.values()]
+  const merged = [...groups.values()]
     .sort((left, right) => left[0].index - right[0].index)
     .map((group) =>
       group.reduce((best, current) =>
@@ -118,4 +118,13 @@ export function mergePlaceCandidates(
           : best,
       ).candidate,
     );
+
+  const queryName = normalizedName(query);
+  const textuallyRelated = merged.filter((candidate) => {
+    const candidateName = normalizedName(candidate.name);
+    return (
+      candidateName.includes(queryName) || queryName.includes(candidateName)
+    );
+  });
+  return textuallyRelated.length >= 2 ? textuallyRelated : merged;
 }

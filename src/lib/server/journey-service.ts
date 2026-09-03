@@ -32,6 +32,11 @@ import {
   type PlaceCandidateSelectionResult,
 } from "@/lib/server/place-candidate-service";
 import { mergePlaceCandidates } from "@/lib/server/place-candidates";
+import {
+  createRouteCandidateService,
+  type RouteCandidateSelectionRequest,
+  type RouteCandidateSelectionResult,
+} from "@/lib/server/route-candidate-service";
 
 type Environment = Record<string, string | undefined>;
 const MAX_SERVER_LOCATION_AGE_MILLISECONDS = 30_000;
@@ -46,6 +51,11 @@ type JourneyServiceDependencies = {
         request: PlaceCandidateSelectionRequest,
       ) => Promise<PlaceCandidateSelectionResult>)
     | null;
+  routeCandidateSelector?:
+    | ((
+        request: RouteCandidateSelectionRequest,
+      ) => Promise<RouteCandidateSelectionResult>)
+    | null;
 };
 
 function runtimeEnvironment(): Environment {
@@ -58,6 +68,8 @@ function runtimeEnvironment(): Environment {
     CWA_API_BASE_URL: process.env.CWA_API_BASE_URL,
     OTP_GRAPHQL_URL: process.env.OTP_GRAPHQL_URL,
     OTP_TIMEOUT_MS: process.env.OTP_TIMEOUT_MS,
+    OTP_TRANSIT_RESCUE_WALKING_MINUTES:
+      process.env.OTP_TRANSIT_RESCUE_WALKING_MINUTES,
     UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
     NOMINATIM_SEARCH_URL: process.env.NOMINATIM_SEARCH_URL,
     NOMINATIM_REVERSE_URL: process.env.NOMINATIM_REVERSE_URL,
@@ -82,12 +94,19 @@ function nominatimConfig(env: Environment): NominatimConfig {
 
 function otpConfig(env: Environment): OtpConfig {
   const parsed = Number.parseInt(env.OTP_TIMEOUT_MS ?? "20000", 10);
+  const rescueWalkingMinutes = Number.parseInt(
+    env.OTP_TRANSIT_RESCUE_WALKING_MINUTES ?? "30",
+    10,
+  );
   return {
     graphqlUrl:
       env.OTP_GRAPHQL_URL?.trim() || "http://127.0.0.1:8080/otp/gtfs/v1",
     timeoutMs: Number.isFinite(parsed)
       ? Math.min(30_000, Math.max(5_000, parsed))
       : 20_000,
+    transitRescueWalkingMinutes: Number.isFinite(rescueWalkingMinutes)
+      ? Math.min(180, Math.max(10, rescueWalkingMinutes))
+      : 30,
   };
 }
 
@@ -187,6 +206,12 @@ export function createJourneyServices(
       : dependencies.env === undefined
         ? createPlaceCandidateService().select
         : null;
+  const routeCandidateSelector =
+    dependencies.routeCandidateSelector !== undefined
+      ? dependencies.routeCandidateSelector
+      : dependencies.env === undefined
+        ? createRouteCandidateService().select
+        : null;
   const tdxSettings = tdxConfig(env);
   const cwaSettings = cwaConfig(env);
   const otpSettings = otpConfig(env);
@@ -210,6 +235,7 @@ export function createJourneyServices(
   const otp = new OtpClient(otpSettings, {
     fetcher: dependencies.fetcher,
     now,
+    routeCandidateSelector,
   });
 
   const services = {

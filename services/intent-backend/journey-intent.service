@@ -13,6 +13,7 @@ Environment=INTENT_PORT=8020
 Environment=INTENT_MAX_CONCURRENT=2
 Environment=CODEX_TIMEOUT_MS=60000
 Environment=PLACE_SELECTION_TIMEOUT_MS=15000
+Environment=ROUTE_SELECTION_TIMEOUT_MS=15000
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

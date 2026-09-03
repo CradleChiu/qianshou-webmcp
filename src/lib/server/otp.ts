@@ -16,15 +16,26 @@ import {
   type ServerFetch,
 } from "@/lib/server/http";
 import type { ResolvedOtpPlace } from "@/lib/server/place-resolver";
+import type {
+  RouteCandidateSelectionRequest,
+  RouteCandidateSelectionResult,
+  RouteSelectionCandidate,
+} from "@/lib/server/route-candidate-service";
 
 export type OtpConfig = {
   graphqlUrl: string;
   timeoutMs: number;
+  transitRescueWalkingMinutes?: number;
 };
 
 type OtpDependencies = {
   fetcher?: ServerFetch;
   now?: () => Date;
+  routeCandidateSelector?:
+    | ((
+        request: RouteCandidateSelectionRequest,
+      ) => Promise<RouteCandidateSelectionResult>)
+    | null;
 };
 
 type OtpLeg = {
@@ -105,6 +116,8 @@ const MAX_TRANSFERS = 2;
 const TRANSFER_BUFFER_MS = 2 * 60 * 1_000;
 const TRANSFER_HUB_RADIUS_METERS = 350;
 const MAX_TRANSFER_HUBS = 4;
+const DEFAULT_TRANSIT_RESCUE_WALKING_MINUTES = 30;
+const MAX_AGENT_ROUTE_CANDIDATES = 6;
 
 export const OTP_PLAN_QUERY = `
   query PlanAccessibleTrip(
@@ -671,7 +684,34 @@ type MappedItinerary = JourneyPlanCore & {
   accessibilityScore: number | null;
   startAt: string | null;
   endAt: string | null;
+  transitModes: TransitMode[];
+  routeNames: string[];
 };
+
+function transitSummary(legs: OtpLeg[]): {
+  transitModes: TransitMode[];
+  routeNames: string[];
+} {
+  const transitModes = legs
+    .filter((leg) => leg.transitLeg === true)
+    .map((leg) => readTransitMode(leg.mode))
+    .filter((mode): mode is TransitMode => Boolean(mode));
+  const routeNames = legs
+    .filter((leg) => leg.transitLeg === true)
+    .map((leg) => {
+      const mode = readTransitMode(leg.mode);
+      return (
+        readText(leg.route?.shortName) ??
+        readText(leg.route?.longName) ??
+        (mode ? modeName(mode) : null)
+      );
+    })
+    .filter((name): name is string => Boolean(name));
+  return {
+    transitModes: [...new Set(transitModes)],
+    routeNames: [...new Set(routeNames)],
+  };
+}
 
 function normalizedAccessibilityScore(itinerary: OtpItinerary): number | null {
   const score = readNumber(itinerary.accessibilityScore);
@@ -715,6 +755,8 @@ function mapItinerary(
     return null;
   }
 
+  const { transitModes, routeNames } = transitSummary(legs);
+
   return {
     summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
     estimatedMinutes: minutes(duration),
@@ -725,6 +767,8 @@ function mapItinerary(
     accessibilityScore: normalizedAccessibilityScore(itinerary),
     startAt: readText(itinerary.start),
     endAt: readText(itinerary.end),
+    transitModes,
+    routeNames,
   };
 }
 
@@ -758,6 +802,8 @@ function combineItineraries(
         : Math.min(first.accessibilityScore, second.accessibilityScore),
     startAt: first.startAt,
     endAt: second.endAt,
+    transitModes: [...new Set([...first.transitModes, ...second.transitModes])],
+    routeNames: [...new Set([...first.routeNames, ...second.routeNames])],
   };
 }
 
@@ -788,6 +834,52 @@ function compareMappedItineraries(
     left.transfers - right.transfers ||
     left.estimatedMinutes - right.estimatedMinutes
   );
+}
+
+function toRouteSelectionCandidate(
+  plan: MappedItinerary,
+  index: number,
+): RouteSelectionCandidate {
+  return {
+    id: `route-${index + 1}`,
+    estimatedMinutes: plan.estimatedMinutes,
+    walkingMinutes: plan.walkingMinutes,
+    transfers: plan.transfers,
+    usesTransit: plan.firstTransitLeg !== null,
+    transitModes: plan.transitModes,
+    routeNames: plan.routeNames,
+    accessibilityScore: plan.accessibilityScore,
+  };
+}
+
+function isClearlyDominated(
+  selected: MappedItinerary,
+  candidates: MappedItinerary[],
+): boolean {
+  return candidates.some((candidate) => {
+    if (candidate === selected) return false;
+    if (
+      !selected.firstTransitLeg &&
+      candidate.firstTransitLeg &&
+      candidate.estimatedMinutes < selected.estimatedMinutes &&
+      candidate.walkingMinutes < selected.walkingMinutes
+    ) {
+      return true;
+    }
+    const accessibilityNotWorse =
+      selected.accessibilityScore === null ||
+      candidate.accessibilityScore === null ||
+      candidate.accessibilityScore >= selected.accessibilityScore;
+    return (
+      accessibilityNotWorse &&
+      candidate.estimatedMinutes <= selected.estimatedMinutes &&
+      candidate.walkingMinutes <= selected.walkingMinutes &&
+      candidate.transfers <= selected.transfers &&
+      (candidate.estimatedMinutes < selected.estimatedMinutes ||
+        candidate.walkingMinutes < selected.walkingMinutes ||
+        candidate.transfers < selected.transfers)
+    );
+  });
 }
 
 function hasComparativeAccessibilityEvidence(
@@ -955,6 +1047,11 @@ function toAlternative(
 export class OtpClient {
   private readonly fetcher: ServerFetch;
   private readonly now: () => Date;
+  private readonly routeCandidateSelector:
+    | ((
+        request: RouteCandidateSelectionRequest,
+      ) => Promise<RouteCandidateSelectionResult>)
+    | null;
 
   constructor(
     private readonly config: OtpConfig,
@@ -963,6 +1060,55 @@ export class OtpClient {
     this.fetcher =
       dependencies.fetcher ?? ((input, init) => fetch(input, init));
     this.now = dependencies.now ?? (() => new Date());
+    this.routeCandidateSelector = dependencies.routeCandidateSelector ?? null;
+  }
+
+  private shouldAttemptTransitRescue(candidates: MappedItinerary[]): boolean {
+    const best = candidates[0];
+    const threshold =
+      this.config.transitRescueWalkingMinutes ??
+      DEFAULT_TRANSIT_RESCUE_WALKING_MINUTES;
+    return Boolean(
+      best &&
+        best.walkingMinutes >= threshold &&
+        candidates.every((candidate) => candidate.firstTransitLeg === null),
+    );
+  }
+
+  private async selectWithAgent(
+    candidates: MappedItinerary[],
+    preferences: JourneyPreferences,
+  ): Promise<{ candidates: MappedItinerary[]; applied: boolean }> {
+    if (!this.routeCandidateSelector || candidates.length < 2) {
+      return { candidates, applied: false };
+    }
+    const selectable = candidates.slice(0, MAX_AGENT_ROUTE_CANDIDATES);
+    const agentCandidates = selectable.map(toRouteSelectionCandidate);
+    try {
+      const selection = await this.routeCandidateSelector({
+        preferences,
+        candidates: agentCandidates,
+      });
+      if (!selection.candidateId || selection.confidence === "low") {
+        return { candidates, applied: false };
+      }
+      const selectedIndex = agentCandidates.findIndex(
+        (candidate) => candidate.id === selection.candidateId,
+      );
+      const selected = selectable[selectedIndex];
+      if (!selected || isClearlyDominated(selected, candidates)) {
+        return { candidates, applied: false };
+      }
+      return {
+        candidates: [
+          selected,
+          ...candidates.filter((candidate) => candidate !== selected),
+        ],
+        applied: true,
+      };
+    } catch {
+      return { candidates, applied: false };
+    }
   }
 
   private async mappedCandidates(
@@ -1089,7 +1235,7 @@ export class OtpClient {
             origin,
             destination,
           );
-          return combined
+          return combined?.firstTransitLeg
             ? { plan: combined, hubName: hub.canonicalName }
             : null;
         } catch (error) {
@@ -1129,6 +1275,7 @@ export class OtpClient {
     const requestedAt = this.now();
     let candidates: MappedItinerary[];
     let transferHubName: string | null = null;
+    let transferHubPlan: MappedItinerary | null = null;
     try {
       candidates = await this.mappedCandidates(
         request,
@@ -1156,7 +1303,43 @@ export class OtpClient {
       if (!fallback) throw error;
       candidates = [fallback.plan];
       transferHubName = fallback.hubName;
+      transferHubPlan = fallback.plan;
     }
+
+    if (this.shouldAttemptTransitRescue(candidates)) {
+      try {
+        const transferHubs = await this.discoverTransferHubs(origin);
+        const fallback = await this.planViaTransferHubs(
+          request,
+          origin,
+          destination,
+          requestedAt,
+          transferHubs,
+        );
+        if (fallback) {
+          transferHubPlan = fallback.plan;
+          transferHubName = fallback.hubName;
+          candidates = [...candidates, fallback.plan]
+            .filter(
+              (candidate, index, all) =>
+                all.findIndex(
+                  (other) => itineraryKey(other) === itineraryKey(candidate),
+                ) === index,
+            )
+            .sort((left, right) =>
+              compareMappedItineraries(left, right, request.preferences),
+            );
+        }
+      } catch {
+        // The original OTP walking candidate remains valid if rescue lookup fails.
+      }
+    }
+
+    const agentSelection = await this.selectWithAgent(
+      candidates,
+      request.preferences,
+    );
+    candidates = agentSelection.candidates;
 
     const selected = candidates[0];
 
@@ -1166,6 +1349,9 @@ export class OtpClient {
         "invalid-response",
         "OpenTripPlanner 路線缺少必要欄位。",
       );
+    }
+    if (transferHubPlan && selected !== transferHubPlan) {
+      transferHubName = null;
     }
 
     const retrievedAt = this.now().toISOString();
@@ -1184,6 +1370,9 @@ export class OtpClient {
         "路線由 OpenTripPlanner 整合 TDX 靜態 GTFS 與 OpenStreetMap 推算，不是 TDX 或營運單位發布的建議路線。",
         ...(transferHubName
           ? [`原始整段查詢無法銜接運具；本方案改由${transferHubName}分段規劃，並保留 2 分鐘轉乘緩衝。`]
+          : []),
+        ...(agentSelection.applied
+          ? ["多個既有候選由受限制的路線選擇 Agent 比較；Agent 只能選擇 OpenTripPlanner 已回傳的候選 ID，不能建立路線或班次。"]
           : []),
         "靜態 GTFS 不含臨時停駛、延誤與現場施工；出發前仍須確認營運公告。",
         request.preferences.stepFree

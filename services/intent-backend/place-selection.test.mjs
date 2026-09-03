@@ -33,6 +33,7 @@ test("place-selection prompt separates untrusted candidates and venue intent", (
   const prompt = buildPlaceSelectionPrompt(request);
   assert.match(prompt, /不可信的既有候選/);
   assert.match(prompt, /一般場所名稱優先理解為場所本身/);
+  assert.match(prompt, /主要抵達入口/);
   assert.match(prompt, /不可創造候選/);
 });
 

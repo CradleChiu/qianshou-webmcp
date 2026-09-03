@@ -68,4 +68,26 @@ describe("mergePlaceCandidates", () => {
 
     expect(result).toHaveLength(2);
   });
+
+  it("合併同一地物的近距離重複節點", () => {
+    const result = mergePlaceCandidates("河濱公園", [
+      candidate("node-a", "河濱公園", 25),
+      candidate("node-b", "河濱公園", 25.002),
+    ]);
+
+    expect(result).toHaveLength(1);
+  });
+
+  it("有多個名稱相關候選時排除完全無關的搜尋雜訊", () => {
+    const result = mergePlaceCandidates("山城", [
+      candidate("visitor-center", "山城遊客中心", 25),
+      candidate("old-street", "山城老街", 25.001),
+      candidate("noise", "海濱公園", 25.002),
+    ]);
+
+    expect(result.map(({ id }) => id)).toEqual([
+      "visitor-center",
+      "old-street",
+    ]);
+  });
 });
