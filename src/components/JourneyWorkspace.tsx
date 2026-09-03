@@ -1300,7 +1300,7 @@ export function JourneyWorkspace() {
               <p>一起確認</p>
               <h2 id="result-title" ref={resultsHeadingRef} tabIndex={-1}>
                 {results.plan
-                  ? "這趟路的重點"
+                  ? "這趟路這樣走"
                   : hasResults
                     ? "查到的資訊"
                     : "行程會顯示在這裡"}
@@ -1317,28 +1317,78 @@ export function JourneyWorkspace() {
                     </div>
                   ) : (
                   <>
-                    <div className="journey-summary">
-                  <p className="summary-source">
-                    <span className={`source-kind source-kind--${results.plan.source.kind}`}>
-                      {sourceKindText(results.plan.source.kind)}
-                    </span>
-                    路線與交通資料
-                  </p>
-                  <p className="summary-title">{results.plan.data.summary}</p>
-                  <dl>
-                    <div>
-                      <dt>預估時間</dt>
-                      <dd>{results.plan.data.estimatedMinutes} 分鐘</dd>
-                    </div>
-                    <div>
-                      <dt>步行</dt>
-                      <dd>約 {results.plan.data.walkingMinutes} 分鐘</dd>
-                    </div>
-                    <div>
-                      <dt>轉乘</dt>
-                      <dd>{results.plan.data.transfers} 次</dd>
-                    </div>
-                  </dl>
+                    <ol className="journey-steps" aria-label="行程步驟">
+                      {results.plan.data.steps.map((step, index) => (
+                        <li key={`${index}-${step.label}`}>
+                          <span className="step-marker" aria-hidden="true">
+                            {index + 1}
+                          </span>
+                          <div>
+                            <h3>{step.label}</h3>
+                            <p>{step.detail}</p>
+                            {step.caution ? (
+                              <p className="step-caution">
+                                <strong>這一步要留意：</strong>
+                                {step.caution}
+                              </p>
+                            ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+
+                    <section
+                      className="journey-summary"
+                      aria-labelledby="journey-summary-title"
+                    >
+                      <p className="summary-source">
+                        <span
+                          className={`source-kind source-kind--${results.plan.source.kind}`}
+                        >
+                          {sourceKindText(results.plan.source.kind)}
+                        </span>
+                        行程總覽
+                      </p>
+                      <h3 id="journey-summary-title" className="summary-title">
+                        {results.plan.data.summary}
+                      </h3>
+                      <dl>
+                        <div>
+                          <dt>全程預估</dt>
+                          <dd>{results.plan.data.estimatedMinutes} 分鐘</dd>
+                        </div>
+                        <div>
+                          <dt>步行合計</dt>
+                          <dd>約 {results.plan.data.walkingMinutes} 分鐘</dd>
+                        </div>
+                        <div>
+                          <dt>轉乘</dt>
+                          <dd>{results.plan.data.transfers} 次</dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <div className="speech-controls" role="group" aria-label="行程朗讀控制">
+                      <button className="secondary-action" type="button" onClick={readCurrentPlan}>
+                        <span aria-hidden="true">●)))</span>
+                        {speechStatus === "idle" ? "朗讀目前行程" : "重新朗讀"}
+                      </button>
+                      <button
+                        className="quiet-action"
+                        type="button"
+                        onClick={toggleSpeech}
+                        disabled={speechStatus === "idle"}
+                      >
+                        {speechStatus === "paused" ? "繼續朗讀" : "暫停朗讀"}
+                      </button>
+                      <button
+                        className="quiet-action"
+                        type="button"
+                        onClick={stopSpeech}
+                        disabled={speechStatus === "idle"}
+                      >
+                        停止朗讀
+                      </button>
                     </div>
 
                     {results.plan.data.alternatives.length ? (
@@ -1372,46 +1422,6 @@ export function JourneyWorkspace() {
                         </div>
                       </section>
                     ) : null}
-
-                    <ol className="journey-steps" aria-label="行程步驟">
-                  {results.plan.data.steps.map((step, index) => (
-                    <li key={`${index}-${step.label}`}>
-                      <span className="step-marker" aria-hidden="true">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <h3>{step.label}</h3>
-                        <p>{step.detail}</p>
-                        {step.caution ? (
-                          <p className="step-caution">注意：{step.caution}</p>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                    </ol>
-
-                    <div className="speech-controls" role="group" aria-label="行程朗讀控制">
-                      <button className="secondary-action" type="button" onClick={readCurrentPlan}>
-                        <span aria-hidden="true">●)))</span>
-                        {speechStatus === "idle" ? "朗讀目前行程" : "重新朗讀"}
-                      </button>
-                      <button
-                        className="quiet-action"
-                        type="button"
-                        onClick={toggleSpeech}
-                        disabled={speechStatus === "idle"}
-                      >
-                        {speechStatus === "paused" ? "繼續朗讀" : "暫停朗讀"}
-                      </button>
-                      <button
-                        className="quiet-action"
-                        type="button"
-                        onClick={stopSpeech}
-                        disabled={speechStatus === "idle"}
-                      >
-                        停止朗讀
-                      </button>
-                    </div>
                   </>
                   )
                 ) : null}

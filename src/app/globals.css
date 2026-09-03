@@ -357,6 +357,7 @@ a:focus-visible,
 .empty-state li + li { margin-top: 0.55rem; }
 
 .journey-summary {
+  margin-top: 1.25rem;
   padding: 1.2rem;
   border: 2px solid var(--asphalt);
   background: var(--paper);
@@ -441,16 +442,23 @@ a:focus-visible,
 .alternative-option span { color: var(--asphalt-soft); font-size: 0.88rem; }
 .alternative-option small { color: var(--route); font-size: 0.78rem; font-weight: 900; }
 
-.journey-steps { margin: 2rem 0; padding: 0; list-style: none; }
+.journey-steps { margin: 1.5rem 0 0; padding: 0; list-style: none; }
 
 .journey-steps li {
   position: relative;
   display: grid;
   grid-template-columns: 3rem 1fr;
-  gap: 1rem;
+  gap: 1.1rem;
 }
 
-.journey-steps li:not(:last-child) { padding-bottom: 1.65rem; }
+.journey-steps li:not(:last-child) { padding-bottom: 1.35rem; }
+
+.journey-steps li > div {
+  padding: 0.15rem 0 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.journey-steps li:last-child > div { border-bottom: 0; }
 
 .journey-steps li:not(:last-child)::after {
   position: absolute;
@@ -475,9 +483,25 @@ a:focus-visible,
 }
 
 .journey-steps h3, .journey-steps p { margin: 0; }
-.journey-steps h3 { font-size: 1.05rem; }
-.journey-steps p { margin-top: 0.25rem; color: var(--asphalt-soft); }
-.step-caution { font-size: 0.9rem; font-weight: 700; }
+.journey-steps h3 { font-size: 1.12rem; line-height: 1.4; }
+
+.journey-steps p {
+  margin-top: 0.4rem;
+  color: var(--asphalt-soft);
+  line-height: 1.7;
+}
+
+.journey-steps .step-caution {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-left: 4px solid var(--tactile);
+  background: rgb(255 255 255 / 60%);
+  font-size: 0.88rem;
+}
+
+.step-caution strong { color: var(--asphalt); }
+
+.journey-summary + .speech-controls { margin-top: 1rem; }
 .brief-grid { display: grid; margin-top: 1.5rem; gap: 0.8rem; }
 
 .brief-card {
