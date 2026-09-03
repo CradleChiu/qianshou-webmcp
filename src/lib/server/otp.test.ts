@@ -456,7 +456,7 @@ describe("OTP adapter", () => {
       expect.objectContaining({
         label: "改搭669",
         estimatedMinutes: 12,
-        walkingMinutes: 5,
+        walkingMinutes: 4,
         transfers: 0,
         firstTransitLeg: expect.objectContaining({
           mode: "BUS",
