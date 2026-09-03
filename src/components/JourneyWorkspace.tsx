@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import headerBanner from "@/assets/qianshou-header-banner.png";
 import {
   analyticsEnabled,
@@ -163,7 +163,7 @@ function currentPlanAsAlternative(plan: JourneyPlan): JourneyAlternative {
   return {
     id: alternativeId(plan),
     label: "回到上一個方案",
-    reason: `全程約 ${plan.estimatedMinutes} 分鐘・步行 ${plan.walkingMinutes} 分鐘・轉乘 ${plan.transfers} 次`,
+    reason: `全程約 ${plan.estimatedMinutes} 分鐘・步行 ${plan.walkingMinutes} 分鐘・${rideAndChangeSummary(plan)}`,
     summary: plan.summary,
     estimatedMinutes: plan.estimatedMinutes,
     walkingMinutes: plan.walkingMinutes,
@@ -172,6 +172,34 @@ function currentPlanAsAlternative(plan: JourneyPlan): JourneyAlternative {
     firstTransitLeg: plan.firstTransitLeg,
     preferenceAssessment: plan.preferenceAssessment,
   };
+}
+
+function rideAndChangeSummary(
+  plan: Pick<JourneyPlan, "firstTransitLeg" | "transfers">,
+): string {
+  if (!plan.firstTransitLeg) return "這趟不需搭車";
+
+  const rides = plan.transfers + 1;
+  return plan.transfers === 0
+    ? `搭 ${rides} 段車，不用換車`
+    : `搭 ${rides} 段車，中間換 ${plan.transfers} 次車`;
+}
+
+function movementPresentation(mode: JourneyPlan["steps"][number]["mode"]): {
+  icon: string;
+  label: string;
+} {
+  const presentations = {
+    WALK: { icon: "🚶", label: "步行" },
+    BUS: { icon: "🚌", label: "搭公車" },
+    SUBWAY: { icon: "🚇", label: "搭捷運" },
+    RAIL: { icon: "🚆", label: "搭火車" },
+    TRAM: { icon: "🚊", label: "搭輕軌" },
+    FERRY: { icon: "⛴", label: "搭渡輪" },
+    TRANSIT: { icon: "●", label: "搭車" },
+  } as const;
+
+  return presentations[mode];
 }
 
 function selectAlternativePlan(
@@ -947,7 +975,7 @@ export function JourneyWorkspace() {
       : [];
     const text = [
       plan.summary,
-      `預估 ${plan.estimatedMinutes} 分鐘，步行約 ${plan.walkingMinutes} 分鐘，轉乘 ${plan.transfers} 次。`,
+      `預估 ${plan.estimatedMinutes} 分鐘，步行約 ${plan.walkingMinutes} 分鐘，${rideAndChangeSummary(plan)}。`,
       plan.preferenceAssessment.headline,
       ...plan.preferenceAssessment.details,
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
@@ -1317,24 +1345,50 @@ export function JourneyWorkspace() {
                     </div>
                   ) : (
                   <>
-                    <ol className="journey-steps" aria-label="行程步驟">
-                      {results.plan.data.steps.map((step, index) => (
-                        <li key={`${index}-${step.label}`}>
-                          <span className="step-marker" aria-hidden="true">
-                            {index + 1}
-                          </span>
-                          <div>
-                            <h3>{step.label}</h3>
-                            <p>{step.detail}</p>
-                            {step.caution ? (
-                              <p className="step-caution">
-                                <strong>這一步要留意：</strong>
-                                {step.caution}
-                              </p>
-                            ) : null}
-                          </div>
-                        </li>
-                      ))}
+                    <ol className="journey-steps" aria-label="行程路線">
+                      <li className="journey-place">
+                        <span className="step-marker" aria-hidden="true">起</span>
+                        <div className="journey-place-content">
+                          <p className="journey-place-kind">起點</p>
+                          <h3>{results.plan.data.steps[0]?.from ?? "起點"}</h3>
+                        </div>
+                      </li>
+                      {results.plan.data.steps.map((step, index) => {
+                        const movement = movementPresentation(step.mode);
+                        const isDestination =
+                          index === results.plan!.data.steps.length - 1;
+                        return (
+                          <Fragment key={`${index}-${step.label}`}>
+                            <li className="journey-movement">
+                              <span className="movement-marker" aria-hidden="true">
+                                {movement.icon}
+                              </span>
+                              <div className="journey-movement-content">
+                                <p className="movement-kind">{movement.label}</p>
+                                <h3>{step.label}</h3>
+                                <p>{step.detail}</p>
+                                {step.caution ? (
+                                  <p className="step-caution">
+                                    <strong>這一步要留意：</strong>
+                                    {step.caution}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </li>
+                            <li className="journey-place">
+                              <span className="step-marker" aria-hidden="true">
+                                {isDestination ? "終" : index + 1}
+                              </span>
+                              <div className="journey-place-content">
+                                <p className="journey-place-kind">
+                                  {isDestination ? "終點" : "抵達"}
+                                </p>
+                                <h3>{step.to}</h3>
+                              </div>
+                            </li>
+                          </Fragment>
+                        );
+                      })}
                     </ol>
 
                     <section
@@ -1362,8 +1416,8 @@ export function JourneyWorkspace() {
                           <dd>約 {results.plan.data.walkingMinutes} 分鐘</dd>
                         </div>
                         <div>
-                          <dt>轉乘</dt>
-                          <dd>{results.plan.data.transfers} 次</dd>
+                          <dt>搭車安排</dt>
+                          <dd>{rideAndChangeSummary(results.plan.data)}</dd>
                         </div>
                       </dl>
                     </section>

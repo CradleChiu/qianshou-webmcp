@@ -291,6 +291,25 @@ function minutes(seconds: number): number {
   return Math.max(1, Math.ceil(seconds / 60));
 }
 
+function displayedWalkingMinutes(
+  legs: OtpLeg[],
+  fallbackWalkTimeSeconds: number,
+): number {
+  const walkLegDurations = legs
+    .filter((leg) => readText(leg.mode) === "WALK")
+    .map((leg) => readNumber(leg.duration))
+    .filter((duration): duration is number => duration !== null);
+
+  if (!walkLegDurations.length) {
+    return Math.ceil(fallbackWalkTimeSeconds / 60);
+  }
+
+  return walkLegDurations.reduce(
+    (total, duration) => total + minutes(duration),
+    0,
+  );
+}
+
 function distanceText(meters: number | null): string {
   if (meters === null) return "距離未知";
   if (meters >= 1000) return `約 ${(meters / 1000).toFixed(1)} 公里`;
@@ -404,6 +423,9 @@ function mapLegToStep(
         readText(nextLeg?.route?.longName) ??
         modeName(nextMode);
       return {
+        mode: "WALK",
+        from,
+        to: transitStopHeading(nextMode, to),
         label: `先走到${transitStopHeading(nextMode, to)}`,
         detail: `從${from}出發，步行${durationText}（${distance}）。到站後，下一步搭乘${nextRouteName}。`,
         caution: walkingCaution,
@@ -412,6 +434,9 @@ function mapLegToStep(
 
     if (previousMode && rawTo === "Destination") {
       return {
+        mode: "WALK",
+        from: transitStopText(previousMode, from),
+        to,
         label: "下車後前往目的地",
         detail: `在${transitStopText(previousMode, from)}下車後，再步行${durationText}（${distance}）到${to}。`,
         caution: walkingCaution,
@@ -419,6 +444,9 @@ function mapLegToStep(
     }
 
     return {
+      mode: "WALK",
+      from,
+      to,
       label: `步行到${to}`,
       detail: `從${from}出發，步行${durationText}（${distance}）到${to}。`,
       caution: walkingCaution,
@@ -440,6 +468,9 @@ function mapLegToStep(
       ? transitDirectionName(headsign)
       : null;
   return {
+    mode: transitMode ?? "TRANSIT",
+    from: transitMode ? transitStopText(transitMode, from) : from,
+    to: transitMode ? transitStopText(transitMode, to) : to,
     label: `${hasPreviousTransit ? "轉乘" : "搭乘"}${routeName}`,
     detail:
       transitMode === "SUBWAY"
@@ -803,7 +834,7 @@ function mapItinerary(
   return {
     summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
     estimatedMinutes: minutes(duration),
-    walkingMinutes: Math.ceil(walkTime / 60),
+    walkingMinutes: displayedWalkingMinutes(legs, walkTime),
     transfers: Math.max(0, Math.round(transfers)),
     steps,
     firstTransitLeg: firstTransitLeg(legs),

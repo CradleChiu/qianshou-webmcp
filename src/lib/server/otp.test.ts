@@ -153,6 +153,31 @@ describe("OTP adapter", () => {
     });
   });
 
+  it("步行合計與畫面逐段顯示的分鐘數一致", async () => {
+    const body = responseBody();
+    const itinerary = body.data.planConnection.edges[0].node;
+    itinerary.duration = 1_200;
+    itinerary.walkTime = 720;
+    itinerary.legs[0].duration = 570;
+    itinerary.legs[2].duration = 150;
+
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(result.data.steps[0].detail).toContain("步行約 10 分鐘");
+    expect(result.data.steps[2].detail).toContain("步行約 3 分鐘");
+    expect(result.data.walkingMinutes).toBe(13);
+  });
+
   it("falls back to an honestly-labeled transit query when accessibility routing times out", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
@@ -754,6 +779,9 @@ describe("OTP adapter", () => {
       "從你指定的起點到你指定的目的地：建議行程",
     );
     expect(result.data.steps[0]).toEqual({
+      mode: "WALK",
+      from: "你指定的起點",
+      to: "馬明潭（再興中學）站牌",
       label: "先走到馬明潭（再興中學）站牌",
       detail:
         "從你指定的起點出發，步行約 12 分鐘（約 900 公尺）。到站後，下一步搭乘棕12。",
@@ -763,7 +791,15 @@ describe("OTP adapter", () => {
     expect(result.data.steps[1].detail).toBe(
       "馬明潭（再興中學）站牌上車，約 8 分鐘後在臺大癌醫（基隆路）站牌下車。",
     );
+    expect(result.data.steps[1]).toMatchObject({
+      mode: "BUS",
+      from: "馬明潭（再興中學）站牌",
+      to: "臺大癌醫（基隆路）站牌",
+    });
     expect(result.data.steps[2]).toMatchObject({
+      mode: "WALK",
+      from: "臺大癌醫（基隆路）站牌",
+      to: "你指定的目的地",
       label: "下車後前往目的地",
       detail:
         "在臺大癌醫（基隆路）站牌下車後，再步行約 6 分鐘（約 390 公尺）到你指定的目的地。",

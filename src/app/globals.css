@@ -378,7 +378,7 @@ a:focus-visible,
 .journey-summary dl {
   display: grid;
   margin: 0;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 0.8fr 0.8fr 1.4fr;
   gap: 0.5rem;
 }
 
@@ -451,14 +451,7 @@ a:focus-visible,
   gap: 1.1rem;
 }
 
-.journey-steps li:not(:last-child) { padding-bottom: 1.35rem; }
-
-.journey-steps li > div {
-  padding: 0.15rem 0 1.25rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.journey-steps li:last-child > div { border-bottom: 0; }
+.journey-steps li:not(:last-child) { padding-bottom: 1rem; }
 
 .journey-steps li:not(:last-child)::after {
   position: absolute;
@@ -480,6 +473,34 @@ a:focus-visible,
   border-radius: 50%;
   background: var(--tactile);
   font-weight: 900;
+}
+
+.movement-marker {
+  display: grid;
+  z-index: 1;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0.15rem 0 0 0.25rem;
+  place-items: center;
+  border: 2px solid var(--asphalt);
+  background: var(--paper);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.journey-place-content { padding: 0.35rem 0 0.85rem; }
+
+.journey-movement-content {
+  padding: 0.1rem 0 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.journey-place-kind,
+.movement-kind {
+  color: var(--harbor) !important;
+  font-size: 0.76rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
 }
 
 .journey-steps h3, .journey-steps p { margin: 0; }
@@ -648,5 +669,5 @@ footer {
 }
 
 @media (forced-colors: active) {
-  .step-marker, .empty-path i, .primary-action { forced-color-adjust: none; }
+  .step-marker, .movement-marker, .empty-path i, .primary-action { forced-color-adjust: none; }
 }

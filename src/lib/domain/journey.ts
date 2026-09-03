@@ -45,6 +45,9 @@ export type InformationSource = {
 };
 
 export type JourneyStep = {
+  mode: "WALK" | TransitMode | "TRANSIT";
+  from: string;
+  to: string;
   label: string;
   detail: string;
   caution?: string;
