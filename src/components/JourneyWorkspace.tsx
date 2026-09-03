@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import headerBanner from "@/assets/qianshou-header-banner.png";
 import {
   analyticsEnabled,
   beginAnalyticsInteraction,
@@ -1161,6 +1163,14 @@ export function JourneyWorkspace() {
   return (
     <>
       <header className="site-header">
+        <Image
+          className="site-header-image"
+          src={headerBanner}
+          alt=""
+          fill
+          sizes="(max-width: 76rem) 100vw, 76rem"
+          preload
+        />
         <div className="brand-lockup" aria-label="牽手過路走首頁">
           <span className="brand-mark" aria-hidden="true">
             <span />
