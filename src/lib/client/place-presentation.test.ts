@@ -20,7 +20,7 @@ function candidate(
 }
 
 describe("presentPlaceCandidate", () => {
-  it("將公車站地址、方向與來源拆成一致的白話欄位", () => {
+  it("將公車站名稱與地址整理成一致的白話欄位", () => {
     expect(
       presentPlaceCandidate(
         candidate({
@@ -35,8 +35,6 @@ describe("presentPlaceCandidate", () => {
       name: "小白宮（淡水分局）",
       kind: "公車站",
       location: "臺北市・中正路 334 號",
-      direction: "往東",
-      source: "公車站官方資料",
     });
   });
 
@@ -68,8 +66,6 @@ describe("presentPlaceCandidate", () => {
       name: "淡水",
       kind: "車站",
       location: "新北市淡水區・中正路 1 號",
-      direction: null,
-      source: "OpenStreetMap 地圖資料",
     });
   });
 });

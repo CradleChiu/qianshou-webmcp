@@ -1127,10 +1127,6 @@ export function JourneyWorkspace() {
                       <span className="place-choice-location">
                         位置：{place.location}
                       </span>
-                      <small className="place-choice-meta">
-                        {place.direction ? <span>方向：{place.direction}</span> : null}
-                        <span>資料來源：{place.source}</span>
-                      </small>
                     </button>
                   );
                 })}

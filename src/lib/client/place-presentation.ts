@@ -4,8 +4,6 @@ export type PlaceCandidatePresentation = {
   name: string;
   kind: string;
   location: string;
-  direction: string | null;
-  source: string;
 };
 
 const kindText: Record<PlaceCandidate["kind"], string> = {
@@ -13,12 +11,6 @@ const kindText: Record<PlaceCandidate["kind"], string> = {
   station: "車站",
   address: "地址／區域",
   landmark: "地標",
-};
-
-const sourceText: Record<PlaceCandidate["source"], string> = {
-  TDX: "公車站官方資料",
-  OpenStreetMap: "OpenStreetMap 地圖資料",
-  user: "你提供的位置",
 };
 
 function compactIdentity(value: string): string {
@@ -32,10 +24,7 @@ function compactIdentity(value: string): string {
     .toLocaleLowerCase("zh-Hant-TW");
 }
 
-function splitDirection(description: string): {
-  description: string;
-  direction: string | null;
-} {
+function withoutDirection(description: string): string {
   const openings = ["(向", "（向", "(往", "（往"];
   for (const opening of openings) {
     const start = description.indexOf(opening);
@@ -45,12 +34,9 @@ function splitDirection(description: string): {
     if (end < 0) continue;
     const value = description.slice(start + opening.length, end).trim();
     if (!value || value.length > 8) continue;
-    return {
-      description: `${description.slice(0, start)}${description.slice(end + 1)}`,
-      direction: `往${value}`,
-    };
+    return `${description.slice(0, start)}${description.slice(end + 1)}`;
   }
-  return { description, direction: null };
+  return description;
 }
 
 function isPostalCode(value: string): boolean {
@@ -160,12 +146,10 @@ function readableLocation(candidate: PlaceCandidate, description: string): strin
 export function presentPlaceCandidate(
   candidate: PlaceCandidate,
 ): PlaceCandidatePresentation {
-  const { description, direction } = splitDirection(candidate.description);
+  const description = withoutDirection(candidate.description);
   return {
     name: candidate.name.replaceAll("(", "（").replaceAll(")", "）"),
     kind: kindText[candidate.kind],
     location: readableLocation(candidate, description),
-    direction,
-    source: sourceText[candidate.source],
   };
 }
