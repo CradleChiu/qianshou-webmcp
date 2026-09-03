@@ -296,15 +296,46 @@ a:focus-visible,
   color: var(--asphalt);
   text-align: left;
   line-height: 1.4;
-  gap: 0.15rem;
+  gap: 0.35rem;
 }
 
 .place-choice:hover, .place-choice:focus-visible {
   background: var(--tactile);
 }
 
+.place-choice-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
 .place-choice-name { font-size: 1.05rem; font-weight: 900; }
-.place-choice small { color: var(--route); font-weight: 800; }
+
+.place-choice-kind {
+  flex: none;
+  padding: 0.12rem 0.38rem;
+  border: 1px solid var(--route);
+  background: var(--mist);
+  color: var(--route);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.place-choice-location {
+  color: var(--asphalt-soft);
+  font-size: 0.92rem;
+}
+
+.place-choice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.8rem;
+  color: var(--route);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
 
 .form-error {
   padding: 0.85rem 1rem;

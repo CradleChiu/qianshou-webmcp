@@ -19,6 +19,7 @@ import {
   currentLocationFailureMessage,
   requestCurrentLocation,
 } from "@/lib/client/current-location";
+import { presentPlaceCandidate } from "@/lib/client/place-presentation";
 import type { AnalyticsContext } from "@/lib/domain/analytics";
 import { DEFAULT_JOURNEY_PREFERENCES } from "@/lib/domain/journey";
 import { journeyDestinationQuery } from "@/lib/domain/intent";
@@ -116,12 +117,6 @@ function speechFailureMessage(error: SpeechSynthesisErrorCode): string {
     return "目前找不到可用的中文系統語音，請使用螢幕閱讀器閱讀行程。";
   }
   return "裝置目前無法完成語音朗讀，請使用螢幕閱讀器閱讀行程。";
-}
-
-function candidateSourceText(source: PlaceCandidate["source"]): string {
-  if (source === "TDX") return "官方公車站資料";
-  if (source === "OpenStreetMap") return "地圖地點資料";
-  return "這次提供的位置";
 }
 
 function SourceMetadata({ source }: { source: InformationSource }) {
@@ -589,11 +584,7 @@ export function JourneyWorkspace() {
         durationMs: analyticsDuration(),
         metadata: { locationRole: field },
       });
-      setLocationFeedback({
-        state: "ready",
-        headline: "已取得目前位置",
-        detail: `${formatTimestamp(location.capturedAt)} 取得，定位誤差約 ${location.accuracyMeters} 公尺，只用於這次行程。`,
-      });
+      setLocationFeedback(null);
       setClarificationQuestion(null);
       setOrigin(field === "origin" ? location.label : otherPlace);
       setDestination(field === "destination" ? location.label : otherPlace);
@@ -1095,42 +1086,54 @@ export function JourneyWorkspace() {
     const selection = placeSelections[field];
     const selected =
       selection?.inputValue === inputValue.trim() ? selection.candidate : null;
+    const selectedPlace = selected ? presentPlaceCandidate(selected) : null;
     if (!choice && !selected) return null;
 
     return (
       <div className="place-confirmation">
-        {selected ? (
+        {selectedPlace ? (
           <p className="selected-place" role="status">
-            <strong>已確認：{selected.name}</strong>
-            <span>{selected.description}</span>
+            <strong>已確認：{selectedPlace.name}</strong>
+            <span>{selectedPlace.kind}・{selectedPlace.location}</span>
           </p>
         ) : null}
         {choice ? (
           <fieldset className="place-choices">
             <legend>
-              「{choice.query}」有 {choice.result.data.candidates.length} 個候選，
-              請選擇正確的{field === "origin" ? "起點" : "目的地"}
+              請確認「{choice.query}」是以下哪一個
+              {field === "origin" ? "起點" : "目的地"}
             </legend>
             {choice.result.data.candidates.length ? (
               <div className="place-choice-list">
-                {choice.result.data.candidates.map((candidate, index) => (
-                  <button
-                    key={candidate.id}
-                    ref={
-                      index === 0 &&
-                      (field === "origin" || !placeChoices.origin)
-                        ? firstPlaceChoiceRef
-                        : undefined
-                    }
-                    type="button"
-                    className="place-choice"
-                    onClick={() => selectPlace(field, candidate)}
-                  >
-                    <span className="place-choice-name">{candidate.name}</span>
-                    <span>{candidate.description}</span>
-                    <small>{candidateSourceText(candidate.source)}</small>
-                  </button>
-                ))}
+                {choice.result.data.candidates.map((candidate, index) => {
+                  const place = presentPlaceCandidate(candidate);
+                  return (
+                    <button
+                      key={candidate.id}
+                      ref={
+                        index === 0 &&
+                        (field === "origin" || !placeChoices.origin)
+                          ? firstPlaceChoiceRef
+                          : undefined
+                      }
+                      type="button"
+                      className="place-choice"
+                      onClick={() => selectPlace(field, candidate)}
+                    >
+                      <span className="place-choice-heading">
+                        <span className="place-choice-name">{place.name}</span>
+                        <span className="place-choice-kind">{place.kind}</span>
+                      </span>
+                      <span className="place-choice-location">
+                        位置：{place.location}
+                      </span>
+                      <small className="place-choice-meta">
+                        {place.direction ? <span>方向：{place.direction}</span> : null}
+                        <span>資料來源：{place.source}</span>
+                      </small>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <p>{choice.result.limitations[0]}</p>
