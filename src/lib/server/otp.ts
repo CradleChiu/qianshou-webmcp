@@ -26,6 +26,7 @@ export type OtpConfig = {
   graphqlUrl: string;
   timeoutMs: number;
   transitRescueWalkingMinutes?: number;
+  accessibilityRoutingEnabled?: boolean;
 };
 
 type OtpDependencies = {
@@ -1319,17 +1320,25 @@ export class OtpClient {
     let candidates: MappedItinerary[];
     let transferHubName: string | null = null;
     let transferHubPlan: MappedItinerary | null = null;
-    let accessibilityQueryFallback = false;
+    let accessibilityQueryFallback: "disabled" | "timeout" | null =
+      request.preferences.stepFree &&
+      this.config.accessibilityRoutingEnabled === false
+        ? "disabled"
+        : null;
     try {
       candidates = await this.mappedCandidates(
         request,
         origin,
         destination,
         requestedAt,
+        accessibilityQueryFallback
+          ? { ...request.preferences, stepFree: false }
+          : request.preferences,
       );
     } catch (error) {
       if (
         request.preferences.stepFree &&
+        !accessibilityQueryFallback &&
         error instanceof ExternalServiceError &&
         error.kind === "timeout"
       ) {
@@ -1340,7 +1349,7 @@ export class OtpClient {
           requestedAt,
           { ...request.preferences, stepFree: false },
         );
-        accessibilityQueryFallback = true;
+        accessibilityQueryFallback = "timeout";
       } else {
         if (
           !(error instanceof ExternalServiceError) ||
@@ -1443,8 +1452,11 @@ export class OtpClient {
         ...(agentSelection.applied
           ? ["多個既有候選由受限制的路線選擇 Agent 比較；Agent 只能選擇 OpenTripPlanner 已回傳的候選 ID，不能建立路線或班次。"]
           : []),
-        ...(accessibilityQueryFallback
+        ...(accessibilityQueryFallback === "timeout"
           ? ["無階梯條件查詢逾時；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。"]
+          : []),
+        ...(accessibilityQueryFallback === "disabled"
+          ? ["目前暫停無階梯條件計算；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。"]
           : []),
         "靜態 GTFS 不含臨時停駛、延誤與現場施工；出發前仍須確認營運公告。",
         request.preferences.stepFree

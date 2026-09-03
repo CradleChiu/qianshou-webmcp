@@ -68,6 +68,8 @@ function runtimeEnvironment(): Environment {
     CWA_API_BASE_URL: process.env.CWA_API_BASE_URL,
     OTP_GRAPHQL_URL: process.env.OTP_GRAPHQL_URL,
     OTP_TIMEOUT_MS: process.env.OTP_TIMEOUT_MS,
+    OTP_ACCESSIBILITY_ROUTING_ENABLED:
+      process.env.OTP_ACCESSIBILITY_ROUTING_ENABLED,
     OTP_TRANSIT_RESCUE_WALKING_MINUTES:
       process.env.OTP_TRANSIT_RESCUE_WALKING_MINUTES,
     UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
@@ -107,6 +109,9 @@ function otpConfig(env: Environment): OtpConfig {
     transitRescueWalkingMinutes: Number.isFinite(rescueWalkingMinutes)
       ? Math.min(180, Math.max(10, rescueWalkingMinutes))
       : 30,
+    accessibilityRoutingEnabled: !["0", "false", "no", "off"].includes(
+      env.OTP_ACCESSIBILITY_ROUTING_ENABLED?.trim().toLowerCase() ?? "true",
+    ),
   };
 }
 

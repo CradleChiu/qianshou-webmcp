@@ -201,6 +201,44 @@ describe("OTP adapter", () => {
     );
   });
 
+  it("can bypass expensive accessibility routing through deployment configuration", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      _input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json(responseBody());
+    });
+    const client = new OtpClient(
+      {
+        graphqlUrl: "http://otp.test/otp/gtfs/v1",
+        timeoutMs: 5000,
+        accessibilityRoutingEnabled: false,
+      },
+      {
+        fetcher,
+        now: () => new Date("2026-08-29T02:00:00.000Z"),
+      },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(bodies).toHaveLength(1);
+    expect(
+      (bodies[0]?.variables as { preferences: Record<string, unknown> })
+        .preferences,
+    ).not.toHaveProperty("accessibility");
+    expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
+    expect(result.limitations).toContain(
+      "目前暫停無階梯條件計算；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。",
+    );
+  });
+
   it("把捷運月臺代碼改寫成簡短的上車、轉乘與下車指示", async () => {
     const body = responseBody();
     const itinerary = body.data.planConnection.edges[0].node as unknown as {
