@@ -79,13 +79,6 @@ type Results = {
 type PlaceSelections = Partial<Record<PlaceField, PlaceSelection>>;
 type PlaceChoices = Partial<Record<PlaceField, PlaceChoice>>;
 
-const statusText: Record<ToolStatus, string> = {
-  checking: "正在準備頁面",
-  available: "可直接使用，也支援智慧助理",
-  unavailable: "可直接使用",
-  failed: "智慧助理暫時無法使用，你仍可直接規劃行程",
-};
-
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei",
@@ -209,7 +202,7 @@ export function JourneyWorkspace() {
     string | null
   >(null);
   const [intentDirty, setIntentDirty] = useState(true);
-  const [toolStatus, setToolStatus] = useState<ToolStatus>("checking");
+  const [, setToolStatus] = useState<ToolStatus>("checking");
   const [results, setResults] = useState<Results>({});
   const [busy, setBusy] = useState(false);
   const [alternativeBusyId, setAlternativeBusyId] = useState<string | null>(
@@ -1171,18 +1164,7 @@ export function JourneyWorkspace() {
           sizes="(max-width: 76rem) 100vw, 76rem"
           preload
         />
-        <div className="brand-lockup" aria-label="牽手過路走首頁">
-          <span className="brand-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </span>
-          <span className="brand-name">牽手過路走</span>
-        </div>
-        <p className={`agent-status agent-status--${toolStatus}`}>
-          <span aria-hidden="true" />
-          {statusText[toolStatus]}
-        </p>
+        <span className="sr-only">牽手過路走</span>
       </header>
 
       <main id="main-content" className="workspace">
