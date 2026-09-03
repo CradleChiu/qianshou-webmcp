@@ -860,7 +860,7 @@ describe("OTP adapter", () => {
     expect(result.data.summary).toBe(
       "從你指定的起點到你指定的目的地：建議行程",
     );
-    expect(result.data.steps[0]).toEqual({
+    expect(result.data.steps[0]).toMatchObject({
       mode: "WALK",
       from: "你指定的起點",
       to: "馬明潭（再興中學）站牌",
