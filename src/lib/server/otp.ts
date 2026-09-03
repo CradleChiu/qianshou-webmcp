@@ -1078,10 +1078,30 @@ function offersUsefulTradeoff(
   selected: JourneyPlanCore,
   alternative: JourneyPlanCore,
 ): boolean {
-  return (
+  const improvesHeadlineMetric =
     alternative.estimatedMinutes < selected.estimatedMinutes ||
     alternative.walkingMinutes < selected.walkingMinutes ||
-    alternative.transfers < selected.transfers
+    alternative.transfers < selected.transfers;
+  if (improvesHeadlineMetric) return true;
+
+  const selectedTransit = selected.firstTransitLeg;
+  const alternativeTransit = alternative.firstTransitLeg;
+  if (!selectedTransit || !alternativeTransit) return false;
+
+  const usesDifferentFirstTransit =
+    selectedTransit.mode !== alternativeTransit.mode ||
+    (selectedTransit.routeUid ?? selectedTransit.routeName) !==
+      (alternativeTransit.routeUid ?? alternativeTransit.routeName);
+  const reasonableExtraMinutes = Math.max(
+    5,
+    Math.ceil(selected.estimatedMinutes * 0.2),
+  );
+  return (
+    usesDifferentFirstTransit &&
+    alternative.estimatedMinutes <=
+      selected.estimatedMinutes + reasonableExtraMinutes &&
+    alternative.walkingMinutes <= selected.walkingMinutes + 10 &&
+    alternative.transfers <= MAX_TRANSFERS
   );
 }
 

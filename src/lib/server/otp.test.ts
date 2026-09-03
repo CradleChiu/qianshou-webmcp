@@ -424,6 +424,48 @@ describe("OTP adapter", () => {
     ]);
   });
 
+  it("保留耗時相近但運具不同的替代路線供使用者切換", async () => {
+    const body = responseBody();
+    const busAlternative = structuredClone(
+      body.data.planConnection.edges[0],
+    );
+    busAlternative.node.walkTime = 300;
+    busAlternative.node.walkDistance = 350;
+    const transitLeg = busAlternative.node.legs[1];
+    transitLeg.mode = "BUS";
+    transitLeg.route = {
+      gtfsId: "1:BUS-669",
+      shortName: "669",
+      longName: "669路",
+    };
+    transitLeg.trip = { gtfsId: "1:BUS-669-trip", directionId: "0" };
+    body.data.planConnection.edges.push(busAlternative);
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(result.data.alternatives).toEqual([
+      expect.objectContaining({
+        label: "改搭669",
+        estimatedMinutes: 12,
+        walkingMinutes: 5,
+        transfers: 0,
+        firstTransitLeg: expect.objectContaining({
+          mode: "BUS",
+          routeName: "669",
+        }),
+      }),
+    ]);
+  });
+
   it("只有完整可比較的候選分數才能稱為相對較適合", async () => {
     const body = responseBody();
     const alternative = structuredClone(body.data.planConnection.edges[0]);
