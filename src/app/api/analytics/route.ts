@@ -24,10 +24,6 @@ export async function POST(request: Request) {
       analyticsStore.recordClientEvent(readClientAnalyticsEvent(body.event));
       return new Response(null, { status: 204 });
     }
-    if (body.action === "delete-session") {
-      const deleted = analyticsStore.deleteSession(body.sessionId as string);
-      return Response.json({ deleted });
-    }
     throw new Error("不支援的事件操作。");
   } catch (error) {
     const message = error instanceof Error ? error.message : "無法處理事件。";

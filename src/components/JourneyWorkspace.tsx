@@ -4,11 +4,8 @@ import Image from "next/image";
 import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import headerBanner from "@/assets/qianshou-header-banner.png";
 import {
-  analyticsEnabled,
   beginAnalyticsInteraction,
-  deleteAnalyticsSession,
   recordAnalyticsEvent,
-  setAnalyticsEnabled,
 } from "@/lib/client/analytics";
 import {
   describeCurrentLocation,
@@ -249,8 +246,6 @@ export function JourneyWorkspace() {
     useState<CurrentLocationUse | null>(null);
   const [placeSelections, setPlaceSelections] = useState<PlaceSelections>({});
   const [placeChoices, setPlaceChoices] = useState<PlaceChoices>({});
-  const [analyticsOn, setAnalyticsOn] = useState(true);
-  const [analyticsMessage, setAnalyticsMessage] = useState("");
   const journeyRequestRef = useRef<HTMLTextAreaElement>(null);
   const firstPlaceChoiceRef = useRef<HTMLButtonElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -280,10 +275,6 @@ export function JourneyWorkspace() {
     if (!context) return undefined;
     return Math.max(0, Date.now() - Date.parse(context.startedAt));
   }
-
-  useEffect(() => {
-    setAnalyticsOn(analyticsEnabled());
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -763,9 +754,7 @@ export function JourneyWorkspace() {
       return;
     }
 
-    const analyticsContext = analyticsEnabled()
-      ? currentAnalyticsContext()
-      : undefined;
+    const analyticsContext = currentAnalyticsContext();
     recordAnalyticsEvent({
       context: analyticsContext,
       eventName: "question_submitted",
@@ -1111,28 +1100,6 @@ export function JourneyWorkspace() {
     setAnnouncement(
       `已選擇${field === "origin" ? "起點" : "目的地"}：${candidate.name}。`,
     );
-  }
-
-  function toggleAnalytics(): void {
-    const next = !analyticsOn;
-    setAnalyticsEnabled(next);
-    setAnalyticsOn(next);
-    setAnalyticsMessage(
-      next
-        ? "已開始記錄這個瀏覽工作階段的使用紀錄。"
-        : "已停止記錄；先前資料仍可另外刪除。",
-    );
-  }
-
-  async function clearAnalytics(): Promise<void> {
-    try {
-      await deleteAnalyticsSession();
-      analyticsContextRef.current = null;
-      inputStartRecordedRef.current = false;
-      setAnalyticsMessage("已刪除這個瀏覽工作階段的使用紀錄。");
-    } catch {
-      setAnalyticsMessage("目前無法刪除使用紀錄，請稍後再試。");
-    }
   }
 
   function renderPlaceConfirmation(field: PlaceField) {
@@ -1649,22 +1616,6 @@ export function JourneyWorkspace() {
       </main>
 
       <footer>
-        <details className="analytics-privacy">
-          <summary>使用紀錄與隱私</summary>
-          <p>
-            這個工作階段會保存你送出的原始提問、系統理解摘要、意圖分類與主要操作。
-            若提問包含地址或座標，也會原樣保存；瀏覽器自動取得的定位座標不會寫入使用紀錄。
-          </p>
-          <div className="analytics-actions">
-            <button type="button" onClick={toggleAnalytics}>
-              {analyticsOn ? "停止記錄" : "開始記錄"}
-            </button>
-            <button type="button" onClick={() => void clearAnalytics()}>
-              刪除這次使用紀錄
-            </button>
-          </div>
-          {analyticsMessage ? <p role="status">{analyticsMessage}</p> : null}
-        </details>
         <p>牽手過路走・在台灣，和你一起把路想清楚</p>
       </footer>
 

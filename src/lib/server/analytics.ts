@@ -320,13 +320,6 @@ export const analyticsStore = {
       intentSummary: "意圖判讀失敗",
     });
   },
-  deleteSession(sessionId: string): number {
-    const normalized = normalizedUuid(sessionId, "工作階段");
-    const result = openDatabase()
-      .prepare("DELETE FROM analytics_events WHERE session_id = ?")
-      .run(normalized);
-    return Number(result.changes);
-  },
 };
 
 export function closeAnalyticsDatabaseForTests(): void {

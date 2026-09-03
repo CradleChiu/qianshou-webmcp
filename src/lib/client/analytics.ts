@@ -9,20 +9,9 @@ import type {
 import { currentInternalApiPath } from "@/lib/client/internal-api";
 
 const SESSION_KEY = "qianshou:analytics-session";
-const ENABLED_KEY = "qianshou:analytics-enabled";
 
 function randomId(): string {
   return crypto.randomUUID();
-}
-
-export function analyticsEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(ENABLED_KEY) !== "false";
-}
-
-export function setAnalyticsEnabled(enabled: boolean): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(ENABLED_KEY, enabled ? "true" : "false");
 }
 
 export function analyticsSessionId(): string {
@@ -50,7 +39,6 @@ function analyticsUrl(): string {
 }
 
 async function send(body: object): Promise<void> {
-  if (!analyticsEnabled()) return;
   await fetch(analyticsUrl(), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -70,7 +58,6 @@ export function recordAnalyticsEvent(input: {
   durationMs?: number;
   metadata?: AnalyticsMetadata;
 }): void {
-  if (!analyticsEnabled()) return;
   const event: ClientAnalyticsEvent = {
     eventId: randomId(),
     sessionId: input.context?.sessionId || analyticsSessionId(),
@@ -83,17 +70,4 @@ export function recordAnalyticsEvent(input: {
     metadata: input.metadata,
   };
   void send({ action: "record", event }).catch(() => undefined);
-}
-
-export async function deleteAnalyticsSession(): Promise<void> {
-  const sessionId = analyticsSessionId();
-  await fetch(analyticsUrl(), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "delete-session", sessionId }),
-    credentials: "same-origin",
-  }).then((response) => {
-    if (!response.ok) throw new Error("delete analytics session failed");
-  });
-  window.sessionStorage.removeItem(SESSION_KEY);
 }
