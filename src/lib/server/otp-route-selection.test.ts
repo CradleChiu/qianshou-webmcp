@@ -3,6 +3,7 @@ import type { JourneyRequest } from "@/lib/domain/journey";
 import type { ServerFetch, ServerRequestInit } from "./http";
 import { OtpClient } from "./otp";
 import type { ResolvedOtpPlace } from "./place-resolver";
+import type { RouteCandidateSelectionRequest } from "./route-candidate-service";
 
 const request: JourneyRequest = {
   origin: "起點",
@@ -111,11 +112,17 @@ describe("OTP route candidate selection", () => {
       mode: "BUS",
       routeName: "公車",
     });
-    const routeCandidateSelector = vi.fn(async () => ({
-      candidateId: "route-2",
-      confidence: "high" as const,
-      reason: "步行負擔明顯較少。",
-    }));
+    const capturedRequests: RouteCandidateSelectionRequest[] = [];
+    const routeCandidateSelector = vi.fn(
+      async (selectionRequest: RouteCandidateSelectionRequest) => {
+        capturedRequests.push(selectionRequest);
+        return {
+          candidateId: "route-2",
+          confidence: "high" as const,
+          reason: "步行負擔明顯較少。",
+        };
+      },
+    );
     const fetcher: ServerFetch = vi.fn(async () =>
       Response.json(planBody([faster, lessWalking])),
     );
@@ -131,7 +138,7 @@ describe("OTP route candidate selection", () => {
     const result = await client.planAccessibleTrip(request, origin, destination);
 
     expect(routeCandidateSelector).toHaveBeenCalledOnce();
-    expect(routeCandidateSelector.mock.calls[0][0].candidates).toEqual([
+    expect(capturedRequests.at(0)?.candidates).toEqual([
       expect.objectContaining({ id: "route-1", routeNames: ["捷運"] }),
       expect.objectContaining({ id: "route-2", routeNames: ["公車"] }),
     ]);
@@ -235,11 +242,14 @@ describe("OTP route candidate selection", () => {
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return Response.json(responses.shift());
     });
-    const routeCandidateSelector = vi.fn(async ({ candidates }) => ({
-      candidateId: candidates.find((candidate) => candidate.usesTransit)?.id ?? null,
-      confidence: "high" as const,
-      reason: "搭車能大幅縮短步行與全程時間。",
-    }));
+    const routeCandidateSelector = vi.fn(
+      async ({ candidates }: RouteCandidateSelectionRequest) => ({
+        candidateId:
+          candidates.find((candidate) => candidate.usesTransit)?.id ?? null,
+        confidence: "high" as const,
+        reason: "搭車能大幅縮短步行與全程時間。",
+      }),
+    );
     const client = new OtpClient(
       {
         graphqlUrl: "http://otp.test/otp/gtfs/v1",
