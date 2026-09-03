@@ -1158,6 +1158,7 @@ export class OtpClient {
     origin: ResolvedOtpPlace,
     destination: ResolvedOtpPlace,
     departureAt: Date,
+    queryPreferences: JourneyPreferences = request.preferences,
   ): Promise<MappedItinerary[]> {
     const { data } = await fetchJson<OtpGraphqlResponse>(
       "OpenTripPlanner",
@@ -1188,7 +1189,7 @@ export class OtpClient {
                 ],
               },
             },
-            preferences: requestPreferences(request.preferences),
+            preferences: requestPreferences(queryPreferences),
             first: 10,
           },
         }),
@@ -1318,6 +1319,7 @@ export class OtpClient {
     let candidates: MappedItinerary[];
     let transferHubName: string | null = null;
     let transferHubPlan: MappedItinerary | null = null;
+    let accessibilityQueryFallback = false;
     try {
       candidates = await this.mappedCandidates(
         request,
@@ -1326,26 +1328,44 @@ export class OtpClient {
         requestedAt,
       );
     } catch (error) {
-      if (!(error instanceof ExternalServiceError) || error.kind !== "no-results") {
-        throw error;
+      if (
+        request.preferences.stepFree &&
+        error instanceof ExternalServiceError &&
+        error.kind === "timeout"
+      ) {
+        candidates = await this.mappedCandidates(
+          request,
+          origin,
+          destination,
+          requestedAt,
+          { ...request.preferences, stepFree: false },
+        );
+        accessibilityQueryFallback = true;
+      } else {
+        if (
+          !(error instanceof ExternalServiceError) ||
+          error.kind !== "no-results"
+        ) {
+          throw error;
+        }
+        let transferHubs: ResolvedOtpPlace[] = [];
+        try {
+          transferHubs = await this.discoverTransferHubs(origin);
+        } catch {
+          throw error;
+        }
+        const fallback = await this.planViaTransferHubs(
+          request,
+          origin,
+          destination,
+          requestedAt,
+          transferHubs,
+        );
+        if (!fallback) throw error;
+        candidates = [fallback.plan];
+        transferHubName = fallback.hubName;
+        transferHubPlan = fallback.plan;
       }
-      let transferHubs: ResolvedOtpPlace[] = [];
-      try {
-        transferHubs = await this.discoverTransferHubs(origin);
-      } catch {
-        throw error;
-      }
-      const fallback = await this.planViaTransferHubs(
-        request,
-        origin,
-        destination,
-        requestedAt,
-        transferHubs,
-      );
-      if (!fallback) throw error;
-      candidates = [fallback.plan];
-      transferHubName = fallback.hubName;
-      transferHubPlan = fallback.plan;
     }
 
     if (this.shouldAttemptTransitRescue(candidates)) {
@@ -1422,6 +1442,9 @@ export class OtpClient {
           : []),
         ...(agentSelection.applied
           ? ["多個既有候選由受限制的路線選擇 Agent 比較；Agent 只能選擇 OpenTripPlanner 已回傳的候選 ID，不能建立路線或班次。"]
+          : []),
+        ...(accessibilityQueryFallback
+          ? ["無階梯條件查詢逾時；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。"]
           : []),
         "靜態 GTFS 不含臨時停駛、延誤與現場施工；出發前仍須確認營運公告。",
         request.preferences.stepFree

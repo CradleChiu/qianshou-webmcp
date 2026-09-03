@@ -153,6 +153,54 @@ describe("OTP adapter", () => {
     });
   });
 
+  it("falls back to an honestly-labeled transit query when accessibility routing times out", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      _input: RequestInfo | URL,
+      init?: ServerRequestInit,
+    ) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      if (bodies.length === 1) {
+        throw new DOMException("accessibility query timed out", "AbortError");
+      }
+      return Response.json(responseBody());
+    });
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      {
+        fetcher,
+        now: () => new Date("2026-08-29T02:00:00.000Z"),
+      },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]?.variables).toMatchObject({
+      preferences: { accessibility: { wheelchair: { enabled: true } } },
+    });
+    expect(bodies[1]?.variables).toMatchObject({
+      preferences: {
+        street: { walk: { reluctance: 4 } },
+        transit: {
+          transfer: { cost: 600, maximumAdditionalTransfers: 2 },
+        },
+      },
+    });
+    expect(
+      (bodies[1]?.variables as { preferences: Record<string, unknown> })
+        .preferences,
+    ).not.toHaveProperty("accessibility");
+    expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
+    expect(result.limitations).toContain(
+      "無階梯條件查詢逾時；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。",
+    );
+  });
+
   it("把捷運月臺代碼改寫成簡短的上車、轉乘與下車指示", async () => {
     const body = responseBody();
     const itinerary = body.data.planConnection.edges[0].node as unknown as {
