@@ -261,24 +261,10 @@ a:focus-visible,
 }
 
 .place-choice-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.6rem;
+  display: block;
 }
 
 .place-choice-name { font-size: 1.05rem; font-weight: 900; }
-
-.place-choice-kind {
-  flex: none;
-  padding: 0.12rem 0.38rem;
-  border: 1px solid var(--route);
-  background: var(--mist);
-  color: var(--route);
-  font-size: 0.76rem;
-  font-weight: 900;
-}
 
 .place-choice-location {
   color: var(--asphalt-soft);

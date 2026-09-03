@@ -6,6 +6,20 @@ export type PlaceCandidatePresentation = {
   location: string;
 };
 
+export type ConfirmedPlaceReference = {
+  query: string;
+  label: string;
+};
+
+export function confirmedPlaceReference(
+  candidate: PlaceCandidate,
+): ConfirmedPlaceReference {
+  return {
+    query: `${candidate.latitude.toFixed(6)},${candidate.longitude.toFixed(6)}`,
+    label: candidate.name,
+  };
+}
+
 const kindText: Record<PlaceCandidate["kind"], string> = {
   "transit-stop": "公車站",
   station: "車站",

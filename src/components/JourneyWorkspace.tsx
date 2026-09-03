@@ -21,7 +21,10 @@ import {
   currentLocationFailureMessage,
   requestCurrentLocation,
 } from "@/lib/client/current-location";
-import { presentPlaceCandidate } from "@/lib/client/place-presentation";
+import {
+  confirmedPlaceReference,
+  presentPlaceCandidate,
+} from "@/lib/client/place-presentation";
 import type { AnalyticsContext } from "@/lib/domain/analytics";
 import { DEFAULT_JOURNEY_PREFERENCES } from "@/lib/domain/journey";
 import { journeyDestinationQuery } from "@/lib/domain/intent";
@@ -455,30 +458,32 @@ export function JourneyWorkspace() {
       accuracyMeters: number;
       capturedAt: string;
     },
+    confirmedSelections: PlaceSelections = placeSelections,
   ) {
     const existingOrigin =
-      placeSelections.origin?.inputValue === normalizedOrigin
-        ? placeSelections.origin.candidate
+      confirmedSelections.origin?.inputValue === normalizedOrigin
+        ? confirmedSelections.origin.candidate
         : undefined;
     const existingDestination =
-      placeSelections.destination?.inputValue === normalizedDestination
-        ? placeSelections.destination.candidate
+      confirmedSelections.destination?.inputValue === normalizedDestination
+        ? confirmedSelections.destination.candidate
         : undefined;
-    const originQuery = existingOrigin?.id.startsWith("coordinate:")
-      ? `${existingOrigin.latitude.toFixed(6)},${existingOrigin.longitude.toFixed(6)}`
-      : normalizedOrigin;
-    const destinationQuery = existingDestination?.id.startsWith("coordinate:")
-      ? `${existingDestination.latitude.toFixed(6)},${existingDestination.longitude.toFixed(6)}`
-      : normalizedDestination;
+    const confirmedOriginReference = existingOrigin
+      ? confirmedPlaceReference(existingOrigin)
+      : undefined;
+    const confirmedDestinationReference = existingDestination
+      ? confirmedPlaceReference(existingDestination)
+      : undefined;
+    const originQuery = confirmedOriginReference?.query ?? normalizedOrigin;
+    const destinationQuery =
+      confirmedDestinationReference?.query ?? normalizedDestination;
     const preparation = await prepareAccessibleJourney({
       origin: originQuery,
       destination: destinationQuery,
       originLabel:
         currentLocation?.field === "origin"
           ? currentLocation.label
-          : existingOrigin?.id.startsWith("coordinate:")
-            ? existingOrigin.name
-            : undefined,
+          : confirmedOriginReference?.label,
       originAccuracyMeters:
         currentLocation?.field === "origin"
           ? currentLocation.accuracyMeters
@@ -490,9 +495,7 @@ export function JourneyWorkspace() {
       destinationLabel:
         currentLocation?.field === "destination"
           ? currentLocation.label
-          : existingDestination?.id.startsWith("coordinate:")
-            ? existingDestination.name
-            : undefined,
+          : confirmedDestinationReference?.label,
       destinationAccuracyMeters:
         currentLocation?.field === "destination"
           ? currentLocation.accuracyMeters
@@ -501,8 +504,6 @@ export function JourneyWorkspace() {
         currentLocation?.field === "destination"
           ? currentLocation.capturedAt
           : undefined,
-      originCandidateId: existingOrigin?.id,
-      destinationCandidateId: existingDestination?.id,
       preferences: { ...DEFAULT_JOURNEY_PREFERENCES },
     });
     recordAnalyticsEvent({
@@ -555,6 +556,7 @@ export function JourneyWorkspace() {
   async function prepareWithCurrentLocation(
     field: PlaceField,
     otherPlace: string,
+    confirmedSelections: PlaceSelections = placeSelections,
   ) {
     recordAnalyticsEvent({
       context: analyticsContextRef.current,
@@ -583,7 +585,15 @@ export function JourneyWorkspace() {
       setClarificationQuestion(null);
       setOrigin(field === "origin" ? location.label : otherPlace);
       setDestination(field === "destination" ? location.label : otherPlace);
-      setPlaceSelections({});
+      setPlaceSelections(
+        field === "origin"
+          ? confirmedSelections.destination
+            ? { destination: confirmedSelections.destination }
+            : {}
+          : confirmedSelections.origin
+            ? { origin: confirmedSelections.origin }
+            : {},
+      );
       setPlaceChoices({});
       setAnnouncement("已取得剛更新的位置，正在確認地點與路線。");
       await prepareResolvedJourney(
@@ -595,6 +605,7 @@ export function JourneyWorkspace() {
           accuracyMeters: location.accuracyMeters,
           capturedAt: location.capturedAt,
         },
+        confirmedSelections,
       );
     } catch (caught) {
       const message = currentLocationFailureMessage(caught);
@@ -714,9 +725,7 @@ export function JourneyWorkspace() {
       !intentDirty &&
       !placeChoices.origin &&
       !placeChoices.destination &&
-      Boolean(confirmedOrigin && confirmedDestination) &&
-      confirmedOrigin?.name !== "目前位置" &&
-      confirmedDestination?.name !== "目前位置";
+      Boolean(confirmedOrigin && confirmedDestination);
 
     if (!canReuseConfirmedPlaces && utterance.length < 2) {
       setError("請說出你想去哪裡，或你現在附近有什麼地標。");
@@ -745,9 +754,27 @@ export function JourneyWorkspace() {
 
     try {
       if (canReuseConfirmedPlaces && confirmedOrigin && confirmedDestination) {
+        if (confirmedOrigin.name === "目前位置") {
+          await prepareWithCurrentLocation(
+            "origin",
+            confirmedDestination.name,
+            placeSelections,
+          );
+          return;
+        }
+        if (confirmedDestination.name === "目前位置") {
+          await prepareWithCurrentLocation(
+            "destination",
+            confirmedOrigin.name,
+            placeSelections,
+          );
+          return;
+        }
         await prepareResolvedJourney(
           confirmedOrigin.name,
           confirmedDestination.name,
+          undefined,
+          placeSelections,
         );
         return;
       }
@@ -790,7 +817,7 @@ export function JourneyWorkspace() {
         intent.destinationReference === "current-location" &&
         normalizedOrigin
       ) {
-        await prepareWithCurrentLocation("destination", normalizedOrigin);
+        await prepareWithCurrentLocation("destination", normalizedOrigin, {});
         return;
       }
       const normalizedDestination = journeyDestinationQuery(intent);
@@ -798,7 +825,7 @@ export function JourneyWorkspace() {
         throw new Error("目前還無法確認完整的起點與目的地。");
       }
       if (intent.originReference === "current-location") {
-        await prepareWithCurrentLocation("origin", normalizedDestination);
+        await prepareWithCurrentLocation("origin", normalizedDestination, {});
         return;
       }
       if (!normalizedOrigin) {
@@ -810,7 +837,12 @@ export function JourneyWorkspace() {
       setPlaceSelections({});
       setPlaceChoices({});
       setAnnouncement("已理解你的需求，正在確認實際地點與路線。");
-      await prepareResolvedJourney(normalizedOrigin, normalizedDestination);
+      await prepareResolvedJourney(
+        normalizedOrigin,
+        normalizedDestination,
+        undefined,
+        {},
+      );
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "無法整理行程。";
       setError(`${message} 請換句話說，並提供附近地標後再試一次。`);
@@ -1117,7 +1149,6 @@ export function JourneyWorkspace() {
                     >
                       <span className="place-choice-heading">
                         <span className="place-choice-name">{place.name}</span>
-                        <span className="place-choice-kind">{place.kind}</span>
                       </span>
                       <span className="place-choice-location">
                         位置：{place.location}

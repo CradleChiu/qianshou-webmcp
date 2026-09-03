@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { PlaceCandidate } from "@/lib/domain/journey";
-import { presentPlaceCandidate } from "@/lib/client/place-presentation";
+import {
+  confirmedPlaceReference,
+  presentPlaceCandidate,
+} from "@/lib/client/place-presentation";
 
 function candidate(
   overrides: Partial<PlaceCandidate> = {},
@@ -66,6 +69,23 @@ describe("presentPlaceCandidate", () => {
       name: "淡水",
       kind: "車站",
       location: "新北市淡水區・中正路 1 號",
+    });
+  });
+});
+
+describe("confirmedPlaceReference", () => {
+  it("已確認的候選改以固定座標續跑，避免再次用名稱搜尋", () => {
+    expect(
+      confirmedPlaceReference(
+        candidate({
+          name: "圖書館",
+          latitude: 25.0123456,
+          longitude: 121.4567894,
+        }),
+      ),
+    ).toEqual({
+      query: "25.012346,121.456789",
+      label: "圖書館",
     });
   });
 });
