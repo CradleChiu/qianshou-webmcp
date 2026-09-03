@@ -178,29 +178,10 @@ describe("OTP route candidate selection", () => {
                 distance: 80,
                 stop: {
                   gtfsId: "1:ORIGIN_STOP",
-                  name: "起點站牌",
-                  routes: [
-                    {
-                      patterns: [
-                        {
-                          stops: [
-                            {
-                              gtfsId: "1:ORIGIN_STOP",
-                              name: "起點站牌",
-                              lat: origin.latitude,
-                              lon: origin.longitude,
-                            },
-                            {
-                              gtfsId: "1:HUB",
-                              name: "中央轉運站",
-                              lat: 25.03,
-                              lon: 121.5,
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                  ],
+                  name: "中央轉運站",
+                  lat: 25.03,
+                  lon: 121.5,
+                  routes: [],
                 },
               },
             },

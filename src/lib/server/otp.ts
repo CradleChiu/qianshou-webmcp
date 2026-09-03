@@ -181,6 +181,8 @@ export const OTP_TRANSFER_HUB_QUERY = `
           stop {
             gtfsId
             name
+            lat
+            lon
             routes {
               patterns {
                 stops { gtfsId name lat lon }
@@ -521,6 +523,23 @@ function parseTransferHubs(
       ? (nearbyStop.routes as OtpTransferRoute[])
       : [];
     if (!nearbyStopId || !nearbyStopName) continue;
+
+    const nearbyLatitude = readNumber(nearbyStop?.lat);
+    const nearbyLongitude = readNumber(nearbyStop?.lon);
+    if (
+      nearbyLatitude !== null &&
+      nearbyLongitude !== null &&
+      isTransferHubName(nearbyStopName)
+    ) {
+      hubs.push({
+        canonicalName: nearbyStopName,
+        latitude: nearbyLatitude,
+        longitude: nearbyLongitude,
+        coordinateSource: "tdx-gtfs-station",
+        accessDistance: readNumber(edge?.node?.distance) ?? 0,
+        stopsAfterOrigin: 0,
+      });
+    }
 
     for (const route of routes) {
       const patterns = Array.isArray(route.patterns)
