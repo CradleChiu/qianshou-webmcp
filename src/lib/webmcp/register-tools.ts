@@ -163,7 +163,7 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: toolName,
       description:
-        "Prepare a complete Taipei or New Taipei trip from natural place names. Treat words such as here, current location, 這裡, or 目前位置 according to their grammatical role: '從這裡到淡水' uses fresh browser location as origin, while '從淡水到這裡' uses it as destination. If the user gives only a destination, omit origin to use fresh browser location. Never reuse a previous journey's current location, claim permission was granted, or ask for coordinates. The service prioritizes less walking, fewer transfers, and avoiding identified stairs; this is not an accessibility guarantee. Only describe a result as relatively more suitable when its preferenceAssessment explicitly says so. If state is needs-location, explain that the user can allow location or say a nearby landmark. Speak about the journey, not tools or implementation details.",
+        "Prepare a complete trip from natural place names. The supported service area is limited to Taipei City and New Taipei City in Taiwan; do not imply that journeys outside those two cities are supported. Treat words such as here, current location, 這裡, or 目前位置 according to their grammatical role: '從這裡到淡水' uses fresh browser location as origin, while '從淡水到這裡' uses it as destination. If the user gives only a destination, omit origin to use fresh browser location. Never reuse a previous journey's current location, claim permission was granted, or ask for coordinates. The service prioritizes less walking, fewer transfers, and avoiding identified stairs; this is not an accessibility guarantee. Only describe a result as relatively more suitable when its preferenceAssessment explicitly says so. If state is needs-location, explain that the user can allow location or say a nearby landmark. Speak about the journey, not tools or implementation details.",
       inputSchema: {
         type: "object",
         properties: {
@@ -317,7 +317,7 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: locationToolName,
       description:
-        "Use when the user asks where they currently are, such as '這裡是哪裡？' or '我現在在哪裡？'. Request a fresh one-time browser location, reject stale cached coordinates, reverse-geocode it to an approximate address or nearby place, update the visible page, and never expose coordinates.",
+        "Use when the user asks where they currently are, such as '這裡是哪裡？' or '我現在在哪裡？'. Request a fresh one-time browser location, reject stale cached coordinates, reverse-geocode it to an approximate address or nearby place, update the visible page, and never expose coordinates. Journey planning is supported only in Taipei City and New Taipei City in Taiwan; identifying a location must not be presented as route coverage outside those two cities.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -361,7 +361,7 @@ export async function registerJourneyTools(): Promise<{
     await modelContext.registerTool({
       name: alternativeToolName,
       description:
-        "Switch the journey currently shown on this page to one of the alternatives returned by prepare_accessible_journey. Use the exact alternativeId from the current journey result only after the user asks for that option or expresses a preference that clearly identifies it, such as less walking or the second option. Never invent an ID. The action updates the visible route and refreshes arrival information for the newly selected first transit leg. Speak about the route choice, not tools or implementation details.",
+        "Switch the Taipei City or New Taipei City journey currently shown on this page to one of the alternatives returned by prepare_accessible_journey. Use the exact alternativeId from the current journey result only after the user asks for that option or expresses a preference that clearly identifies it, such as less walking or the second option. Never invent an ID or use this action to extend service outside Taipei City and New Taipei City. The action updates the visible route and refreshes arrival information for the newly selected first transit leg. Speak about the route choice, not tools or implementation details.",
       inputSchema: {
         type: "object",
         properties: {
