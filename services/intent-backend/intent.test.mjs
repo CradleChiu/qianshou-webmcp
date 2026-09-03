@@ -4,9 +4,17 @@ import {
   buildPrompt,
   codexArguments,
   interpretJourneyIntent,
+  normalizeCodexTimeoutMs,
   validateInterpretRequest,
   validateInterpretResult,
 } from "./intent.mjs";
+
+test("maps configured Codex timeouts to bounded constants", () => {
+  assert.equal(normalizeCodexTimeoutMs(Number.NaN), 60_000);
+  assert.equal(normalizeCodexTimeoutMs(-1), 1_000);
+  assert.equal(normalizeCodexTimeoutMs(61_000), 90_000);
+  assert.equal(normalizeCodexTimeoutMs(Number.MAX_SAFE_INTEGER), 120_000);
+});
 
 test("validates and normalizes a multi-turn request", () => {
   assert.deepEqual(

@@ -16,8 +16,18 @@ const CLARIFICATION_TARGETS = new Set([
 const CONFIDENCE_LEVELS = new Set(["high", "medium", "low"]);
 const CODEX_COMMAND = "codex";
 const DEFAULT_CODEX_TIMEOUT_MS = 60_000;
-const MIN_CODEX_TIMEOUT_MS = 1_000;
-const MAX_CODEX_TIMEOUT_MS = 120_000;
+
+export function normalizeCodexTimeoutMs(value) {
+  if (!Number.isFinite(value)) return DEFAULT_CODEX_TIMEOUT_MS;
+  const milliseconds = Math.trunc(value);
+  if (milliseconds <= 1_000) return 1_000;
+  if (milliseconds <= 5_000) return 5_000;
+  if (milliseconds <= 15_000) return 15_000;
+  if (milliseconds <= 30_000) return 30_000;
+  if (milliseconds <= 60_000) return 60_000;
+  if (milliseconds <= 90_000) return 90_000;
+  return 120_000;
+}
 
 function normalizeOptionalText(value, label, maximum = 80) {
   if (value === undefined || value === null) return null;
@@ -252,12 +262,7 @@ function runCodex(args, { timeoutMs, spawnProcess = spawn }) {
     let stderr = "";
     let settled = false;
 
-    const safeTimeoutMs = Number.isFinite(timeoutMs)
-      ? Math.min(
-          MAX_CODEX_TIMEOUT_MS,
-          Math.max(MIN_CODEX_TIMEOUT_MS, Math.trunc(timeoutMs)),
-        )
-      : DEFAULT_CODEX_TIMEOUT_MS;
+    const safeTimeoutMs = normalizeCodexTimeoutMs(timeoutMs);
     const timer = setTimeout(() => {
       if (settled) return;
       child.kill("SIGKILL");
@@ -310,7 +315,7 @@ export async function interpretJourneyIntent(
 
   try {
     const args = codexArguments({ workingDirectory, outputPath, prompt });
-    await runner(args, { timeoutMs });
+    await runner(args, { timeoutMs: normalizeCodexTimeoutMs(timeoutMs) });
     const result = JSON.parse(await readFile(outputPath, "utf8"));
     return validateInterpretResult(result);
   } finally {
