@@ -382,7 +382,6 @@ function mapLegToStep(
   previousLeg: OtpLeg | undefined,
   nextLeg: OtpLeg | undefined,
   hasPreviousTransit: boolean,
-  preferences: JourneyPreferences,
   origin: ResolvedOtpPlace,
   destination: ResolvedOtpPlace,
 ): JourneyStep | null {
@@ -413,9 +412,6 @@ function mapLegToStep(
     const previousMode = previousLeg?.transitLeg
       ? readTransitMode(previousLeg.mode)
       : null;
-    const walkingCaution = preferences.stepFree
-      ? "這段路的無障礙資訊可能不完整。若遇到樓梯、陡坡或電梯停用，請先停下確認，再改走其他路線或請人協助。"
-      : undefined;
 
     if (nextMode) {
       const nextRouteName =
@@ -428,7 +424,6 @@ function mapLegToStep(
         to: transitStopHeading(nextMode, to),
         label: `先走到${transitStopHeading(nextMode, to)}`,
         detail: `從${from}出發，步行${durationText}（${distance}）。到站後，下一步搭乘${nextRouteName}。`,
-        caution: walkingCaution,
       };
     }
 
@@ -439,7 +434,6 @@ function mapLegToStep(
         to,
         label: "下車後前往目的地",
         detail: `在${transitStopText(previousMode, from)}下車後，再步行${durationText}（${distance}）到${to}。`,
-        caution: walkingCaution,
       };
     }
 
@@ -449,7 +443,6 @@ function mapLegToStep(
       to,
       label: `步行到${to}`,
       detail: `從${from}出發，步行${durationText}（${distance}）到${to}。`,
-      caution: walkingCaution,
     };
   }
 
@@ -480,10 +473,6 @@ function mapLegToStep(
         : transitMode
           ? `在${transitStopText(transitMode, from)}搭乘${routeName}${headsign ? `（往${headsign}）` : ""}，坐到${transitStopText(transitMode, to)}，車程${durationText}。`
       : `搭乘${routeName}從${from}前往${to}，${durationText}。`,
-    caution:
-      preferences.stepFree && leg.transitLeg === true
-        ? "班次與車站的無障礙資訊可能不完整；出發前請向營運單位確認低地板車輛、電梯等狀態。"
-        : undefined,
   };
 }
 
@@ -794,7 +783,6 @@ function normalizedAccessibilityScore(itinerary: OtpItinerary): number | null {
 
 function mapItinerary(
   itinerary: OtpItinerary,
-  preferences: JourneyPreferences,
   origin: ResolvedOtpPlace,
   destination: ResolvedOtpPlace,
 ): MappedItinerary | null {
@@ -813,7 +801,6 @@ function mapItinerary(
         legs
           .slice(0, index)
           .some((candidate) => candidate.transitLeg === true),
-        preferences,
         origin,
         destination,
       ),
@@ -1234,7 +1221,6 @@ export class OtpClient {
       .map((itinerary) =>
         mapItinerary(
           itinerary,
-          request.preferences,
           origin,
           destination,
         ),

@@ -785,8 +785,6 @@ describe("OTP adapter", () => {
       label: "先走到馬明潭（再興中學）站牌",
       detail:
         "從你指定的起點出發，步行約 12 分鐘（約 900 公尺）。到站後，下一步搭乘棕12。",
-      caution:
-        "這段路的無障礙資訊可能不完整。若遇到樓梯、陡坡或電梯停用，請先停下確認，再改走其他路線或請人協助。",
     });
     expect(result.data.steps[1].detail).toBe(
       "馬明潭（再興中學）站牌上車，約 8 分鐘後在臺大癌醫（基隆路）站牌下車。",
@@ -806,6 +804,9 @@ describe("OTP adapter", () => {
     });
     expect(JSON.stringify(result.data.steps)).not.toContain("24.985000");
     expect(JSON.stringify(result.data.steps)).not.toContain("25.015000");
+    expect(result.data.steps.every((step) => step.caution === undefined)).toBe(
+      true,
+    );
   });
 
   it("GraphQL 回傳錯誤時不建立看似可用的路線", async () => {
