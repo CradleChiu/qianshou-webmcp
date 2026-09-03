@@ -1,6 +1,7 @@
 export const MAX_LOCATION_ACCURACY_METERS = 250;
 export const MAX_LOCATION_AGE_MILLISECONDS = 15_000;
 const LOCATION_TIMEOUT_MILLISECONDS = 15_000;
+export const LOCATION_REQUEST_DEADLINE_MILLISECONDS = 18_000;
 
 export type CurrentLocation = {
   latitude: number;
@@ -69,68 +70,99 @@ export function requestCurrentLocation(
   }
 
   return new Promise((resolve, reject) => {
-    geolocation.getCurrentPosition(
-      (position) => {
-        const latitude = position.coords.latitude;
-        const longitude = position.coords.longitude;
-        const accuracyMeters = position.coords.accuracy;
-        const capturedAt = position.timestamp;
+    let settled = false;
+    const resolveOnce = (location: CurrentLocation) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadlineTimer);
+      resolve(location);
+    };
+    const rejectOnce = (error: CurrentLocationError) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadlineTimer);
+      reject(error);
+    };
+    const deadlineTimer = setTimeout(() => {
+      rejectOnce(
+        new CurrentLocationError(
+          "timeout",
+          "定位沒有在 18 秒內完成。請再試一次，或說你附近的店家、路口、車站或地址。",
+        ),
+      );
+    }, LOCATION_REQUEST_DEADLINE_MILLISECONDS);
 
-        if (
-          !Number.isFinite(latitude) ||
-          !Number.isFinite(longitude) ||
-          !Number.isFinite(accuracyMeters) ||
-          !Number.isFinite(capturedAt)
-        ) {
-          reject(
-            new CurrentLocationError(
-              "unavailable",
-              "裝置回傳的位置不完整。請說你附近的店家、路口、車站或地址。",
-            ),
-          );
-          return;
-        }
+    try {
+      geolocation.getCurrentPosition(
+        (position) => {
+          const latitude = position.coords.latitude;
+          const longitude = position.coords.longitude;
+          const accuracyMeters = position.coords.accuracy;
+          const capturedAt = position.timestamp;
 
-        const ageMilliseconds = now() - capturedAt;
-        if (
-          ageMilliseconds > MAX_LOCATION_AGE_MILLISECONDS ||
-          ageMilliseconds < -5_000
-        ) {
-          reject(
-            new CurrentLocationError(
-              "stale",
-              "裝置回傳的是先前的位置，不是剛取得的位置。請重新開啟裝置定位後再試一次。",
-            ),
-          );
-          return;
-        }
+          if (
+            !Number.isFinite(latitude) ||
+            !Number.isFinite(longitude) ||
+            !Number.isFinite(accuracyMeters) ||
+            !Number.isFinite(capturedAt)
+          ) {
+            rejectOnce(
+              new CurrentLocationError(
+                "unavailable",
+                "裝置回傳的位置不完整。請說你附近的店家、路口、車站或地址。",
+              ),
+            );
+            return;
+          }
 
-        if (accuracyMeters > MAX_LOCATION_ACCURACY_METERS) {
-          reject(
-            new CurrentLocationError(
-              "inaccurate",
-              `目前定位誤差約 ${Math.round(accuracyMeters)} 公尺，還不夠準確。請再試一次，或說你附近的地標。`,
-            ),
-          );
-          return;
-        }
+          const ageMilliseconds = now() - capturedAt;
+          if (
+            ageMilliseconds > MAX_LOCATION_AGE_MILLISECONDS ||
+            ageMilliseconds < -5_000
+          ) {
+            rejectOnce(
+              new CurrentLocationError(
+                "stale",
+                "裝置回傳的是先前的位置，不是剛取得的位置。請重新開啟裝置定位後再試一次。",
+              ),
+            );
+            return;
+          }
 
-        resolve({
-          latitude,
-          longitude,
-          accuracyMeters: Math.max(0, Math.round(accuracyMeters)),
-          capturedAt: new Date(capturedAt).toISOString(),
-          query: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
-          label: "目前位置",
-        });
-      },
-      (error) => reject(browserError(error)),
-      {
-        enableHighAccuracy: true,
-        timeout: LOCATION_TIMEOUT_MILLISECONDS,
-        maximumAge: 0,
-      },
-    );
+          if (accuracyMeters > MAX_LOCATION_ACCURACY_METERS) {
+            rejectOnce(
+              new CurrentLocationError(
+                "inaccurate",
+                `目前定位誤差約 ${Math.round(accuracyMeters)} 公尺，還不夠準確。請再試一次，或說你附近的地標。`,
+              ),
+            );
+            return;
+          }
+
+          resolveOnce({
+            latitude,
+            longitude,
+            accuracyMeters: Math.max(0, Math.round(accuracyMeters)),
+            capturedAt: new Date(capturedAt).toISOString(),
+            query: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
+            label: "目前位置",
+          });
+        },
+        (error) => rejectOnce(browserError(error)),
+        {
+          enableHighAccuracy: true,
+          timeout: LOCATION_TIMEOUT_MILLISECONDS,
+          maximumAge: 0,
+        },
+      );
+    } catch {
+      rejectOnce(
+        new CurrentLocationError(
+          "unavailable",
+          "瀏覽器目前無法啟動定位。請再試一次，或說你附近的店家、路口、車站或地址。",
+        ),
+      );
+    }
   });
 }
 

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CurrentLocationError,
   MAX_LOCATION_ACCURACY_METERS,
   MAX_LOCATION_AGE_MILLISECONDS,
+  LOCATION_REQUEST_DEADLINE_MILLISECONDS,
   requestCurrentLocation,
 } from "./current-location";
 
@@ -106,5 +107,21 @@ describe("current browser location", () => {
     await expect(requestCurrentLocation(geolocation, () => now)).rejects.toMatchObject({
       code: "stale",
     });
+  });
+
+  it("stops waiting when the browser leaves its permission prompt unresolved", async () => {
+    vi.useFakeTimers();
+    try {
+      const geolocation = provider(() => undefined);
+      const result = requestCurrentLocation(geolocation).catch((error) => error);
+
+      await vi.advanceTimersByTimeAsync(LOCATION_REQUEST_DEADLINE_MILLISECONDS);
+
+      expect(await result).toMatchObject({
+        code: "timeout",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
