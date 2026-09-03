@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ServerFetch } from "./http";
 import { createJourneyServices } from "./journey-service";
+import type { PlaceCandidateSelectionRequest } from "./place-candidate-service";
 
 function otpWalkingResponse() {
   return {
@@ -207,6 +208,46 @@ describe("journey service orchestration", () => {
     expect(result.destination?.name).toBe("臺大醫院");
     expect(result.confirmations.origin?.data.candidates).toHaveLength(2);
     expect(result.plan).toBeUndefined();
+  });
+
+  it("Codex 高信心選擇既有候選後直接接續行程", async () => {
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
+      input: RequestInfo | URL,
+    ) =>
+      input.toString().includes("nominatim.test")
+        ? Response.json(nominatimPlaces(input))
+        : Response.json(otpWalkingResponse()),
+    );
+    const placeCandidateSelector = vi.fn(
+      async ({ candidates }: PlaceCandidateSelectionRequest) => ({
+        candidateId: candidates.find(({ id }) => id === "osm:102")?.id ?? null,
+        confidence: "high" as const,
+        reason: "行政區線索足以確認。",
+      }),
+    );
+    const services = createJourneyServices({
+      env: {
+        NOMINATIM_SEARCH_URL: "https://nominatim.test/search",
+        OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1",
+      },
+      fetcher,
+      placeCandidateSelector,
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "板橋區中正路",
+      destination: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(placeCandidateSelector).toHaveBeenCalledOnce();
+    expect(result.state).toBe("ready");
+    expect(result.origin).toMatchObject({ id: "osm:102" });
+    expect(result.confirmations).toEqual({});
   });
 
   it("不接受不存在的候選 ID，也不替使用者猜地點", async () => {

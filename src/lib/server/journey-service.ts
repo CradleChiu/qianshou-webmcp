@@ -26,6 +26,12 @@ import {
   NominatimClient,
   type NominatimConfig,
 } from "@/lib/server/nominatim";
+import {
+  createPlaceCandidateService,
+  type PlaceCandidateSelectionRequest,
+  type PlaceCandidateSelectionResult,
+} from "@/lib/server/place-candidate-service";
+import { mergePlaceCandidates } from "@/lib/server/place-candidates";
 
 type Environment = Record<string, string | undefined>;
 const MAX_SERVER_LOCATION_AGE_MILLISECONDS = 30_000;
@@ -35,6 +41,11 @@ type JourneyServiceDependencies = {
   fetcher?: ServerFetch;
   now?: () => Date;
   sleep?: (milliseconds: number) => Promise<void>;
+  placeCandidateSelector?:
+    | ((
+        request: PlaceCandidateSelectionRequest,
+      ) => Promise<PlaceCandidateSelectionResult>)
+    | null;
 };
 
 function runtimeEnvironment(): Environment {
@@ -157,24 +168,6 @@ function failureMessage(service: string, error: unknown): string {
   return `${service}暫時無法取得，請稍後再試。`;
 }
 
-function normalizedPlaceName(value: string): string {
-  return value.replaceAll("台", "臺").replace(/[\s()（）]/g, "").toLocaleLowerCase("zh-Hant-TW");
-}
-
-function dedupePlaceCandidates(candidates: PlaceCandidate[]): PlaceCandidate[] {
-  return candidates.filter((candidate, index, all) => {
-    const name = normalizedPlaceName(candidate.name);
-    return (
-      all.findIndex((other) => {
-        if (normalizedPlaceName(other.name) !== name) return false;
-        const latitudeDifference = Math.abs(other.latitude - candidate.latitude);
-        const longitudeDifference = Math.abs(other.longitude - candidate.longitude);
-        return latitudeDifference < 0.00035 && longitudeDifference < 0.00035;
-      }) === index
-    );
-  });
-}
-
 function requireFreshLocation(capturedAt: string | undefined, now: Date) {
   if (!capturedAt) return;
   const age = now.getTime() - Date.parse(capturedAt);
@@ -188,6 +181,12 @@ export function createJourneyServices(
 ) {
   const env = dependencies.env ?? runtimeEnvironment();
   const now = dependencies.now ?? (() => new Date());
+  const placeCandidateSelector =
+    dependencies.placeCandidateSelector !== undefined
+      ? dependencies.placeCandidateSelector
+      : dependencies.env === undefined
+        ? createPlaceCandidateService().select
+        : null;
   const tdxSettings = tdxConfig(env);
   const cwaSettings = cwaConfig(env);
   const otpSettings = otpConfig(env);
@@ -279,7 +278,7 @@ export function createJourneyServices(
       ]);
       const tdxCandidates = tdxResult.status === "fulfilled" ? tdxResult.value : [];
       const osmCandidates = osmResult.status === "fulfilled" ? osmResult.value : [];
-      const candidates = dedupePlaceCandidates([
+      const candidates = mergePlaceCandidates(normalizedQuery, [
         ...tdxCandidates,
         ...osmCandidates,
       ]).slice(0, 6);
@@ -607,19 +606,34 @@ export function createJourneyServices(
     },
   };
 
-  function selectedCandidate(
+  async function selectedCandidate(
     search: ServiceEnvelope<PlaceSearchResult>,
     candidateId?: string,
-  ): PlaceCandidate | null {
+  ): Promise<PlaceCandidate | null> {
     if (candidateId) {
       return (
         search.data.candidates.find((candidate) => candidate.id === candidateId) ??
         null
       );
     }
-    return search.data.candidates.length === 1
-      ? search.data.candidates[0]
-      : null;
+    if (search.data.candidates.length === 1) {
+      return search.data.candidates[0];
+    }
+    if (!placeCandidateSelector || search.data.candidates.length < 2) return null;
+    try {
+      const selection = await placeCandidateSelector({
+        query: search.data.query,
+        candidates: search.data.candidates,
+      });
+      if (selection.confidence !== "high" || !selection.candidateId) return null;
+      return (
+        search.data.candidates.find(
+          (candidate) => candidate.id === selection.candidateId,
+        ) ?? null
+      );
+    } catch {
+      return null;
+    }
   }
 
   function weatherLocation(candidate: PlaceCandidate): string {
@@ -646,11 +660,11 @@ export function createJourneyServices(
         services.searchPlaces(originQuery),
         services.searchPlaces(destinationQuery),
       ]);
-      const selectedOrigin = selectedCandidate(
+      const selectedOrigin = await selectedCandidate(
         originSearch,
         request.originCandidateId,
       );
-      const destination = selectedCandidate(
+      const destination = await selectedCandidate(
         destinationSearch,
         request.destinationCandidateId,
       );

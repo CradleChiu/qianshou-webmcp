@@ -191,7 +191,13 @@ ${JSON.stringify(untrustedInput)}
 只輸出符合 schema 的 JSON。`;
 }
 
-export function codexArguments({ workingDirectory, outputPath, prompt }) {
+export function codexArguments({
+  workingDirectory,
+  outputPath,
+  prompt,
+  schemaPath = SCHEMA_PATH,
+  reasoningEffort,
+}) {
   return [
     "exec",
     "--ephemeral",
@@ -203,7 +209,7 @@ export function codexArguments({ workingDirectory, outputPath, prompt }) {
     "--color",
     "never",
     "--output-schema",
-    SCHEMA_PATH,
+    schemaPath,
     "--output-last-message",
     outputPath,
     "--disable",
@@ -226,6 +232,9 @@ export function codexArguments({ workingDirectory, outputPath, prompt }) {
     'approval_policy="never"',
     "-c",
     "allow_login_shell=false",
+    ...(reasoningEffort
+      ? ["-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`]
+      : []),
     "-C",
     workingDirectory,
     prompt,
@@ -252,7 +261,7 @@ function childEnvironment(source = process.env) {
   );
 }
 
-function runCodex(args, { timeoutMs, spawnProcess = spawn }) {
+export function runCodex(args, { timeoutMs, spawnProcess = spawn }) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess(CODEX_COMMAND, args, {
       env: childEnvironment(),

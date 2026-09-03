@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { interpretJourneyIntent } from "./intent.mjs";
+import { selectPlaceCandidate } from "./place-selection.mjs";
 
 const host = process.env.INTENT_HOST || "127.0.0.1";
 const port = Number(process.env.INTENT_PORT || 8020);
@@ -50,7 +51,12 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method !== "POST" || url.pathname !== "/v1/interpret") {
+  const isInterpretRequest = url.pathname === "/v1/interpret";
+  const isPlaceSelectionRequest = url.pathname === "/v1/select-place";
+  if (
+    request.method !== "POST" ||
+    (!isInterpretRequest && !isPlaceSelectionRequest)
+  ) {
     sendJson(response, 404, { error: "找不到這個服務端點。" });
     return;
   }
@@ -66,7 +72,9 @@ const server = createServer(async (request, response) => {
   activeRequests += 1;
   try {
     const input = await readJson(request);
-    const result = await interpretJourneyIntent(input);
+    const result = isInterpretRequest
+      ? await interpretJourneyIntent(input)
+      : await selectPlaceCandidate(input);
     sendJson(response, 200, { result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "目前無法理解需求。";

@@ -12,6 +12,7 @@ Environment=INTENT_HOST=127.0.0.1
 Environment=INTENT_PORT=8020
 Environment=INTENT_MAX_CONCURRENT=2
 Environment=CODEX_TIMEOUT_MS=60000
+Environment=PLACE_SELECTION_TIMEOUT_MS=15000
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
