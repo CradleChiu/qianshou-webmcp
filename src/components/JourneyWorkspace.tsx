@@ -1341,21 +1341,6 @@ export function JourneyWorkspace() {
                   </dl>
                     </div>
 
-                    <section
-                      className={`preference-check preference-check--${results.plan.data.preferenceAssessment.status}`}
-                      aria-labelledby="preference-check-title"
-                    >
-                      <p className="preference-check-label">規劃原則核對</p>
-                      <h3 id="preference-check-title">
-                        {results.plan.data.preferenceAssessment.headline}
-                      </h3>
-                      <ul>
-                        {results.plan.data.preferenceAssessment.details.map(
-                          (detail) => <li key={detail}>{detail}</li>,
-                        )}
-                      </ul>
-                    </section>
-
                     {results.plan.data.alternatives.length ? (
                       <section
                         className="journey-alternatives"

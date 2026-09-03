@@ -391,20 +391,12 @@ a:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
-.preference-check,
 .journey-alternatives {
   margin-top: 1rem;
   padding: 1rem 1.1rem;
   border: 2px solid var(--asphalt);
   background: var(--paper);
 }
-
-.preference-check--needs-attention {
-  border-left: 0.5rem solid var(--tactile);
-  background: #fffaf0;
-}
-
-.preference-check--met { border-left: 0.5rem solid var(--route); }
 
 .preference-check-label {
   margin: 0;
@@ -414,17 +406,9 @@ a:focus-visible,
   letter-spacing: 0.08em;
 }
 
-.preference-check h3,
 .journey-alternatives h3 {
   margin: 0.15rem 0 0;
   font-size: 1.08rem;
-}
-
-.preference-check ul {
-  margin: 0.55rem 0 0;
-  padding-left: 1.25rem;
-  color: var(--asphalt-soft);
-  font-size: 0.92rem;
 }
 
 .alternative-list {
