@@ -13,12 +13,14 @@ const request = {
     {
       id: "venue",
       name: "動物園",
+      aliases: [],
       kind: "landmark",
       description: "動物園園區",
     },
     {
       id: "station",
       name: "動物園站",
+      aliases: [],
       kind: "station",
       description: "鄰近動物園的車站",
     },
@@ -35,6 +37,7 @@ test("place-selection prompt separates untrusted candidates and venue intent", (
   assert.match(prompt, /一般場所名稱優先理解為場所本身/);
   assert.match(prompt, /主要抵達入口/);
   assert.match(prompt, /不可創造候選/);
+  assert.match(prompt, /英文地點要同時比對 aliases/);
 });
 
 test("rejects an invented candidate id", () => {

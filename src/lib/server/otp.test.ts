@@ -174,8 +174,39 @@ describe("OTP adapter", () => {
     );
 
     expect(result.data.steps[0].detail).toContain("步行約 10 分鐘");
-    expect(result.data.steps[2].detail).toContain("步行約 3 分鐘");
-    expect(result.data.walkingMinutes).toBe(13);
+    expect(result.data.steps[2].detail).toContain("步行約 2 分鐘");
+    expect(result.data.walkingMinutes).toBe(12);
+    expect(
+      result.data.steps.reduce(
+        (total, step) => total + (step.durationMinutes ?? 0),
+        result.data.waitingMinutes ?? 0,
+      ),
+    ).toBe(result.data.estimatedMinutes);
+  });
+
+  it("將 OTP 總時間中未屬於移動路段的時間列為候車與轉乘等待", async () => {
+    const body = responseBody();
+    body.data.planConnection.edges[0].node.duration = 1_200;
+    const fetcher: ServerFetch = vi.fn(async () => Response.json(body));
+    const client = new OtpClient(
+      { graphqlUrl: "http://otp.test/otp/gtfs/v1", timeoutMs: 5000 },
+      { fetcher, now: () => new Date("2026-08-29T02:00:00.000Z") },
+    );
+
+    const result = await client.planAccessibleTrip(
+      request,
+      origin,
+      destination,
+    );
+
+    expect(result.data.estimatedMinutes).toBe(20);
+    expect(result.data.waitingMinutes).toBe(8);
+    expect(
+      result.data.steps.reduce(
+        (total, step) => total + (step.durationMinutes ?? 0),
+        result.data.waitingMinutes ?? 0,
+      ),
+    ).toBe(result.data.estimatedMinutes);
   });
 
   it("falls back to an honestly-labeled transit query when accessibility routing times out", async () => {
@@ -224,6 +255,9 @@ describe("OTP adapter", () => {
     expect(result.limitations).toContain(
       "無階梯條件查詢逾時；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。",
     );
+    expect(result.data.preferenceAssessment.details.join(" ")).not.toContain(
+      "已降低有階梯",
+    );
   });
 
   it("can bypass expensive accessibility routing through deployment configuration", async () => {
@@ -261,6 +295,12 @@ describe("OTP adapter", () => {
     expect(result.data.firstTransitLeg?.mode).toBe("SUBWAY");
     expect(result.limitations).toContain(
       "目前暫停無階梯條件計算；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。",
+    );
+    expect(result.data.preferenceAssessment.details.join(" ")).not.toContain(
+      "已降低有階梯",
+    );
+    expect(result.limitations).toContain(
+      "本次沒有套用無階梯條件，不能據此判斷沿線是否可通行。",
     );
   });
 
@@ -1037,6 +1077,7 @@ describe("OTP adapter", () => {
       "從烏來到捷運新埔站（2號出口）：建議行程",
     );
     expect(result.data.estimatedMinutes).toBe(70);
+    expect(result.data.waitingMinutes).toBe(4);
     expect(result.data.walkingMinutes).toBe(5);
     expect(result.data.transfers).toBe(2);
     expect(result.data.firstTransitLeg).toMatchObject({

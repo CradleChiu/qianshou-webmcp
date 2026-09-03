@@ -41,6 +41,62 @@ import {
 type Environment = Record<string, string | undefined>;
 const MAX_SERVER_LOCATION_AGE_MILLISECONDS = 30_000;
 
+function normalizedPlaceText(value: string): string {
+  return value
+    .replaceAll("台", "臺")
+    .replace(/[\s()（）·・,，.。\-]/g, "")
+    .toLocaleLowerCase("zh-Hant-TW");
+}
+
+function candidateSearchNames(candidate: PlaceCandidate): string[] {
+  return [candidate.name, ...(candidate.aliases ?? [])].map(normalizedPlaceText);
+}
+
+function queryHasUniqueCandidateQualifier(
+  query: string,
+  candidates: PlaceCandidate[],
+): boolean {
+  const normalizedQuery = normalizedPlaceText(query);
+  const qualifiedMatches = candidates.filter((candidate) => {
+    return candidateSearchNames(candidate).some((candidateName) => {
+      if (!normalizedQuery.includes(candidateName)) return false;
+      const qualifier = normalizedQuery.replace(candidateName, "");
+      return (
+        qualifier.length >= 2 &&
+        normalizedPlaceText(candidate.description).includes(qualifier)
+      );
+    });
+  });
+  return qualifiedMatches.length === 1;
+}
+
+function hasUnresolvedPlaceAmbiguity(
+  query: string,
+  candidates: PlaceCandidate[],
+): boolean {
+  if (candidates.length < 2 || queryHasUniqueCandidateQualifier(query, candidates)) {
+    return false;
+  }
+  const normalizedQuery = normalizedPlaceText(query);
+  const related = candidates.filter((candidate) => {
+    return candidateSearchNames(candidate).some(
+      (name) => name.includes(normalizedQuery) || normalizedQuery.includes(name),
+    );
+  });
+  if (related.length < 2) return false;
+
+  const cities = new Set(
+    related
+      .map((candidate) => candidate.city)
+      .filter((city): city is NonNullable<PlaceCandidate["city"]> => city !== null),
+  );
+  const names = related.map((candidate) => normalizedPlaceText(candidate.name));
+  const hasDuplicateName = names.some(
+    (name, index) => names.indexOf(name) !== index,
+  );
+  return cities.size > 1 || hasDuplicateName;
+}
+
 type JourneyServiceDependencies = {
   env?: Environment;
   fetcher?: ServerFetch;
@@ -658,6 +714,14 @@ export function createJourneyServices(
     }
     if (search.data.candidates.length === 1) {
       return search.data.candidates[0];
+    }
+    if (
+      hasUnresolvedPlaceAmbiguity(
+        search.data.query,
+        search.data.candidates,
+      )
+    ) {
+      return null;
     }
     if (!placeCandidateSelector || search.data.candidates.length < 2) return null;
     try {

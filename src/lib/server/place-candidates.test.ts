@@ -78,6 +78,31 @@ describe("mergePlaceCandidates", () => {
     expect(result).toHaveLength(1);
   });
 
+  it("英文站名精確符合別名時保留主站體而非名稱較長的鄰近站體", () => {
+    const mainStation = candidate(
+      "main-station",
+      "臺北車站",
+      25.0477,
+      "station",
+    );
+    mainStation.aliases = ["Taipei Main Station"];
+    const airportStation = candidate(
+      "airport-station",
+      "桃園機場捷運臺北車站",
+      25.0489,
+      "station",
+    );
+    airportStation.aliases = ["Taipei Main Station (Taoyuan Airport MRT)"];
+
+    const result = mergePlaceCandidates("Taipei Main Station", [
+      airportStation,
+      mainStation,
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("main-station");
+  });
+
   it("有多個名稱相關候選時排除完全無關的搜尋雜訊", () => {
     const result = mergePlaceCandidates("山城", [
       candidate("visitor-center", "山城遊客中心", 25),

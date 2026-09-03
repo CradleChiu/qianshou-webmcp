@@ -68,8 +68,13 @@ function representativeScore(query: string, candidate: PlaceCandidate): number {
   const candidateName = normalizedName(candidate.name);
   const specificity = Math.min(candidateName.length, 24) * 4;
   const exactMatch = candidateName === queryName ? 8 : 0;
+  const exactAliasMatch = candidate.aliases?.some(
+    (alias) => normalizedName(alias) === queryName,
+  )
+    ? 100
+    : 0;
   const officialTransit = candidate.source === "TDX" ? 3 : 0;
-  return specificity + exactMatch + officialTransit;
+  return specificity + exactMatch + exactAliasMatch + officialTransit;
 }
 
 export function mergePlaceCandidates(
@@ -121,9 +126,12 @@ export function mergePlaceCandidates(
 
   const queryName = normalizedName(query);
   const textuallyRelated = merged.filter((candidate) => {
-    const candidateName = normalizedName(candidate.name);
-    return (
-      candidateName.includes(queryName) || queryName.includes(candidateName)
+    const names = [candidate.name, ...(candidate.aliases ?? [])].map(
+      normalizedName,
+    );
+    return names.some(
+      (candidateName) =>
+        candidateName.includes(queryName) || queryName.includes(candidateName),
     );
   });
   return textuallyRelated.length >= 2 ? textuallyRelated : merged;

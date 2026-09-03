@@ -27,6 +27,7 @@ type NominatimRecord = {
   category?: unknown;
   type?: unknown;
   address?: Record<string, unknown>;
+  namedetails?: Record<string, unknown>;
 };
 
 function readText(value: unknown): string | null {
@@ -82,6 +83,14 @@ function mapRecord(record: NominatimRecord): PlaceCandidate | null {
     return null;
   }
   const name = readText(record.name) ?? displayName.split(",")[0].trim();
+  const aliases = [
+    ...new Set(
+      Object.values(record.namedetails ?? {})
+        .map(readText)
+        .filter((value): value is string => Boolean(value))
+        .filter((value) => value.localeCompare(name, "zh-Hant-TW", { sensitivity: "base" }) !== 0),
+    ),
+  ].slice(0, 20);
   const placeId =
     typeof record.place_id === "string" || typeof record.place_id === "number"
       ? String(record.place_id)
@@ -89,6 +98,7 @@ function mapRecord(record: NominatimRecord): PlaceCandidate | null {
   return {
     id: `osm:${placeId}`,
     name,
+    ...(aliases.length ? { aliases } : {}),
     description: displayName,
     latitude,
     longitude,
@@ -153,11 +163,12 @@ export class NominatimClient {
       url.searchParams.set("q", normalized);
       url.searchParams.set("format", "jsonv2");
       url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("namedetails", "1");
       url.searchParams.set("accept-language", "zh-TW,zh-Hant,en");
       url.searchParams.set("countrycodes", "tw");
       url.searchParams.set("viewbox", "121.28,25.30,121.75,24.78");
       url.searchParams.set("bounded", "1");
-      url.searchParams.set("limit", "5");
+      url.searchParams.set("limit", "10");
 
       const { data } = await fetchJson<unknown>(
         "OpenStreetMap 地點搜尋",

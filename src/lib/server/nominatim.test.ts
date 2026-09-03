@@ -28,6 +28,10 @@ describe("OpenStreetMap Nominatim adapter", () => {
           category: "aeroway",
           type: "aerodrome",
           address: { city: "臺北市" },
+          namedetails: {
+            name: "松山機場",
+            "name:en": "Taipei Songshan Airport",
+          },
         },
       ]);
     });
@@ -51,6 +55,7 @@ describe("OpenStreetMap Nominatim adapter", () => {
         name: "松山機場",
         source: "OpenStreetMap",
         city: "Taipei",
+        aliases: ["Taipei Songshan Airport"],
       }),
     ]);
     expect(cached).toEqual(first);
@@ -60,6 +65,8 @@ describe("OpenStreetMap Nominatim adapter", () => {
     expect(url.searchParams.get("q")).toBe("臺北 松山機場");
     expect(url.searchParams.get("countrycodes")).toBe("tw");
     expect(url.searchParams.get("bounded")).toBe("1");
+    expect(url.searchParams.get("namedetails")).toBe("1");
+    expect(url.searchParams.get("limit")).toBe("10");
     expect(url.searchParams.get("viewbox")).toBe(
       "121.28,25.30,121.75,24.78",
     );

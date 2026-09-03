@@ -35,6 +35,22 @@ describe("analytics privacy", () => {
     ).toThrow(/禁止欄位/);
   });
 
+  it("accepts allowlisted WebMCP tool metadata", () => {
+    expect(
+      readClientAnalyticsEvent({
+        eventId: "44444444-4444-4444-8444-444444444444",
+        sessionId: "55555555-5555-4555-8555-555555555555",
+        eventName: "webmcp_tool_completed",
+        occurredAt: new Date().toISOString(),
+        inputMethod: "webmcp",
+        metadata: { toolName: "prepare_accessible_journey" },
+      }),
+    ).toMatchObject({
+      inputMethod: "webmcp",
+      metadata: { toolName: "prepare_accessible_journey" },
+    });
+  });
+
   it("stores the submitted question and understood summary verbatim", () => {
     const result = {
       intentKind: "journey" as const,

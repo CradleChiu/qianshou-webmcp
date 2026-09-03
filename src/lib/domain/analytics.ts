@@ -45,6 +45,12 @@ export type AnalyticsMetadata = {
     | "describe_current_location"
     | "select_journey_alternative";
   hasTransit?: boolean;
+  arrivalStatus?: "available" | "unavailable" | "not-applicable" | "not-requested";
+  arrivalMatchType?:
+    | "exact-trip"
+    | "stop-keyword"
+    | "no-transit"
+    | "unsupported-mode";
   errorCode?:
     | "unsupported"
     | "permission-denied"

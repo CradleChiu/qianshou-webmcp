@@ -167,6 +167,7 @@ function currentPlanAsAlternative(plan: JourneyPlan): JourneyAlternative {
     summary: plan.summary,
     estimatedMinutes: plan.estimatedMinutes,
     walkingMinutes: plan.walkingMinutes,
+    waitingMinutes: plan.waitingMinutes,
     transfers: plan.transfers,
     steps: plan.steps,
     firstTransitLeg: plan.firstTransitLeg,
@@ -630,6 +631,14 @@ export function JourneyWorkspace() {
           (preparation.confirmations.origin?.data.candidates.length ?? 0) +
           (preparation.confirmations.destination?.data.candidates.length ?? 0),
         hasTransit: Boolean(preparation.plan?.data.firstTransitLeg),
+        arrivalStatus: !preparation.arrivals
+          ? "not-requested"
+          : preparation.arrivals.data.matchType === "no-transit"
+            ? "not-applicable"
+            : preparation.arrivals.data.arrivals.length > 0
+              ? "available"
+              : "unavailable",
+        arrivalMatchType: preparation.arrivals?.data.matchType,
       },
     });
     applyPreparation(preparation, {
@@ -824,22 +833,25 @@ export function JourneyWorkspace() {
     setError("");
     setRequestInvalid(false);
     setLocationFeedback(null);
+    setResults({});
+    activePlanRef.current = undefined;
     const utterance = journeyRequest.trim();
     const confirmedOrigin = placeSelections.origin?.candidate;
     const confirmedDestination = placeSelections.destination?.candidate;
-    const canReuseConfirmedPlaces =
-      !placeChoices.origin &&
-      !placeChoices.destination &&
-      Boolean(confirmedOrigin && confirmedDestination) &&
-      (!intentDirty || utterance.length === 0);
 
-    if (!canReuseConfirmedPlaces && utterance.length < 2) {
+    if (utterance.length < 2) {
       setError("請說出你想去哪裡，或你現在附近有什麼地標。");
       setRequestInvalid(true);
       setAnnouncement("還需要多一點行程資訊。");
       window.requestAnimationFrame(() => journeyRequestRef.current?.focus());
       return;
     }
+
+    const canReuseConfirmedPlaces =
+      !placeChoices.origin &&
+      !placeChoices.destination &&
+      Boolean(confirmedOrigin && confirmedDestination) &&
+      !intentDirty;
 
     const analyticsContext = currentAnalyticsContext();
     recordAnalyticsEvent({
@@ -1082,6 +1094,9 @@ export function JourneyWorkspace() {
     const text = [
       plan.summary,
       `預估 ${plan.estimatedMinutes} 分鐘，步行約 ${plan.walkingMinutes} 分鐘，${rideAndChangeSummary(plan)}。`,
+      ...(plan.waitingMinutes
+        ? [`其中候車與轉乘等待約 ${plan.waitingMinutes} 分鐘。`]
+        : []),
       plan.preferenceAssessment.headline,
       ...plan.preferenceAssessment.details,
       ...plan.steps.map((step) => `${step.label}。${step.detail}`),
@@ -1500,6 +1515,12 @@ export function JourneyWorkspace() {
                           <dt>步行合計</dt>
                           <dd>約 {results.plan.data.walkingMinutes} 分鐘</dd>
                         </div>
+                        {results.plan.data.waitingMinutes ? (
+                          <div>
+                            <dt>候車與轉乘等待</dt>
+                            <dd>約 {results.plan.data.waitingMinutes} 分鐘</dd>
+                          </div>
+                        ) : null}
                         <div>
                           <dt>搭車安排</dt>
                           <dd>{rideAndChangeSummary(results.plan.data)}</dd>

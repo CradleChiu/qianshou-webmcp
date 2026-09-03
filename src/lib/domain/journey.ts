@@ -21,6 +21,7 @@ export type JourneyRequest = {
 export type PlaceCandidate = {
   id: string;
   name: string;
+  aliases?: string[];
   description: string;
   latitude: number;
   longitude: number;
@@ -50,6 +51,7 @@ export type JourneyStep = {
   to: string;
   label: string;
   detail: string;
+  durationMinutes?: number;
   caution?: string;
 };
 
@@ -76,6 +78,7 @@ export type JourneyPlanCore = {
   summary: string;
   estimatedMinutes: number;
   walkingMinutes: number;
+  waitingMinutes?: number;
   transfers: number;
   steps: JourneyStep[];
   firstTransitLeg: TransitLegReference | null;

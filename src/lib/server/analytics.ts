@@ -28,7 +28,20 @@ const OUTCOMES = new Set<AnalyticsOutcome>([
   "failed",
   "cancelled",
 ]);
-const BLOCKED_METADATA_KEYS = /(?:address|coordinate|latitude|longitude|origin|destination|place|query|text|transcript|utterance|name)/i;
+const ALLOWED_METADATA_KEYS = new Set<string>([
+  "locationRole",
+  "clarificationTarget",
+  "preparationState",
+  "candidateField",
+  "candidateSource",
+  "candidateCount",
+  "control",
+  "toolName",
+  "hasTransit",
+  "arrivalStatus",
+  "arrivalMatchType",
+  "errorCode",
+]);
 
 let database: DatabaseSync | null = null;
 let lastCleanupAt = 0;
@@ -122,7 +135,7 @@ function readMetadata(value: unknown): AnalyticsMetadata {
     throw new Error("事件附加資料格式錯誤。");
   }
   const source = value as Record<string, unknown>;
-  if (Object.keys(source).some((key) => BLOCKED_METADATA_KEYS.test(key))) {
+  if (Object.keys(source).some((key) => !ALLOWED_METADATA_KEYS.has(key))) {
     throw new Error("事件附加資料包含禁止欄位。");
   }
   const metadata: AnalyticsMetadata = {};
@@ -153,6 +166,18 @@ function readMetadata(value: unknown): AnalyticsMetadata {
     "prepare_accessible_journey",
     "describe_current_location",
     "select_journey_alternative",
+  ]);
+  copyEnum("arrivalStatus", [
+    "available",
+    "unavailable",
+    "not-applicable",
+    "not-requested",
+  ]);
+  copyEnum("arrivalMatchType", [
+    "exact-trip",
+    "stop-keyword",
+    "no-transit",
+    "unsupported-mode",
   ]);
   copyEnum("errorCode", [
     "unsupported",

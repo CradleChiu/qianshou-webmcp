@@ -250,6 +250,60 @@ describe("journey service orchestration", () => {
     expect(result.confirmations).toEqual({});
   });
 
+  it("同名地點跨越雙北時不允許 Agent 代替使用者猜選", async () => {
+    const cityHalls = [
+      {
+        place_id: 301,
+        lat: "25.0375",
+        lon: "121.5637",
+        name: "市政府",
+        display_name: "市政府, 信義區, 臺北市, 臺灣",
+        category: "amenity",
+        type: "townhall",
+        address: { city: "臺北市" },
+      },
+      {
+        place_id: 302,
+        lat: "25.0114",
+        lon: "121.4618",
+        name: "市政府",
+        display_name: "市政府, 板橋區, 新北市, 臺灣",
+        category: "amenity",
+        type: "townhall",
+        address: { city: "新北市" },
+      },
+    ];
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (input) => {
+      const query = new URL(input.toString()).searchParams.get("q") ?? "";
+      return Response.json(query.includes("臺大醫院") ? nominatimPlaces(input) : cityHalls);
+    });
+    const placeCandidateSelector = vi.fn(async () => ({
+      candidateId: "osm:301",
+      confidence: "high" as const,
+      reason: "候選看似明確。",
+    }));
+    const services = createJourneyServices({
+      env: { NOMINATIM_SEARCH_URL: "https://nominatim.test/search" },
+      fetcher,
+      placeCandidateSelector,
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "市政府",
+      destination: "台大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(placeCandidateSelector).not.toHaveBeenCalled();
+    expect(result.state).toBe("needs-confirmation");
+    expect(result.origin).toBeNull();
+    expect(result.confirmations.origin?.data.candidates).toHaveLength(2);
+  });
+
   it("不接受不存在的候選 ID，也不替使用者猜地點", async () => {
     const fetcher: ServerFetch = vi.fn<ServerFetch>(async (
       input: RequestInfo | URL,

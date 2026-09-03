@@ -118,7 +118,13 @@ export function createPlaceCandidateService(
       request: PlaceCandidateSelectionRequest,
     ): Promise<PlaceCandidateSelectionResult> {
       const candidates = request.candidates.map(
-        ({ id, name, kind, description }) => ({ id, name, kind, description }),
+        ({ id, name, aliases, kind, description }) => ({
+          id,
+          name,
+          aliases: aliases ?? [],
+          kind,
+          description,
+        }),
       );
       const response = await fetchImpl(serviceUrl, {
         method: "POST",

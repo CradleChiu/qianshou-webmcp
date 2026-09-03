@@ -295,23 +295,76 @@ function minutes(seconds: number): number {
   return Math.max(1, Math.ceil(seconds / 60));
 }
 
+function displayedItineraryTiming(
+  legs: OtpLeg[],
+  totalDurationSeconds: number,
+): {
+  estimatedMinutes: number;
+  waitingMinutes: number;
+  legMinutes: Array<number | null>;
+} {
+  const durations = legs.map((leg) => readNumber(leg.duration));
+  const timedLegs = durations
+    .map((duration, index) => ({ duration, index }))
+    .filter(
+      (item): item is { duration: number; index: number } =>
+        item.duration !== null && item.duration >= 0,
+    );
+  const movementSeconds = timedLegs.reduce(
+    (total, item) => total + item.duration,
+    0,
+  );
+  const movementTarget = Math.max(
+    timedLegs.length,
+    Math.round(movementSeconds / 60),
+  );
+  const estimatedMinutes = Math.max(
+    minutes(totalDurationSeconds),
+    movementTarget,
+  );
+  const waitingMinutes = Math.max(0, estimatedMinutes - movementTarget);
+  const legMinutes: Array<number | null> = durations.map(() => null);
+
+  for (const item of timedLegs) {
+    legMinutes[item.index] = Math.max(1, Math.floor(item.duration / 60));
+  }
+  let remaining =
+    movementTarget -
+    legMinutes.reduce(
+      (total, value) => total + (typeof value === "number" ? value : 0),
+      0,
+    );
+  const allocationOrder = [...timedLegs].sort(
+    (left, right) =>
+      (right.duration % 60) - (left.duration % 60) || left.index - right.index,
+  );
+  for (let index = 0; remaining > 0 && allocationOrder.length; index += 1) {
+    const target = allocationOrder[index % allocationOrder.length].index;
+    legMinutes[target] = (legMinutes[target] ?? 0) + 1;
+    remaining -= 1;
+  }
+
+  return { estimatedMinutes, waitingMinutes, legMinutes };
+}
+
 function displayedWalkingMinutes(
   legs: OtpLeg[],
   fallbackWalkTimeSeconds: number,
+  legMinutes?: Array<number | null>,
 ): number {
-  const walkLegDurations = legs
-    .filter((leg) => readText(leg.mode) === "WALK")
-    .map((leg) => readNumber(leg.duration))
-    .filter((duration): duration is number => duration !== null);
+  const walkLegDurations = legs.flatMap((leg, index) => {
+    if (readText(leg.mode) !== "WALK") return [];
+    const displayed = legMinutes?.[index];
+    if (typeof displayed === "number") return [displayed];
+    const duration = readNumber(leg.duration);
+    return duration === null ? [] : [minutes(duration)];
+  });
 
   if (!walkLegDurations.length) {
     return Math.ceil(fallbackWalkTimeSeconds / 60);
   }
 
-  return walkLegDurations.reduce(
-    (total, duration) => total + minutes(duration),
-    0,
-  );
+  return walkLegDurations.reduce((total, duration) => total + duration, 0);
 }
 
 function distanceText(meters: number | null): string {
@@ -388,6 +441,7 @@ function mapLegToStep(
   hasPreviousTransit: boolean,
   origin: ResolvedOtpPlace,
   destination: ResolvedOtpPlace,
+  displayedDurationMinutes?: number | null,
 ): JourneyStep | null {
   const mode = readText(leg.mode);
   const rawFrom = readText(leg.from?.name);
@@ -407,7 +461,8 @@ function mapLegToStep(
   const duration = readNumber(leg.duration);
   if (!mode || duration === null) return null;
 
-  const durationText = `約 ${minutes(duration)} 分鐘`;
+  const durationMinutes = displayedDurationMinutes ?? minutes(duration);
+  const durationText = `約 ${durationMinutes} 分鐘`;
   const distance = distanceText(readNumber(leg.distance));
   if (mode === "WALK") {
     const nextMode = nextLeg?.transitLeg
@@ -428,6 +483,7 @@ function mapLegToStep(
         to: transitStopHeading(nextMode, to),
         label: `先走到${transitStopHeading(nextMode, to)}`,
         detail: `從${from}出發，步行${durationText}（${distance}）。到站後，下一步搭乘${nextRouteName}。`,
+        durationMinutes,
       };
     }
 
@@ -438,6 +494,7 @@ function mapLegToStep(
         to,
         label: "下車後前往目的地",
         detail: `在${transitStopText(previousMode, from)}下車後，再步行${durationText}（${distance}）到${to}。`,
+        durationMinutes,
       };
     }
 
@@ -447,6 +504,7 @@ function mapLegToStep(
       to,
       label: `步行到${to}`,
       detail: `從${from}出發，步行${durationText}（${distance}）到${to}。`,
+      durationMinutes,
     };
   }
 
@@ -469,6 +527,7 @@ function mapLegToStep(
     from: transitMode ? transitStopText(transitMode, from) : from,
     to: transitMode ? transitStopText(transitMode, to) : to,
     label: `${hasPreviousTransit ? "轉乘" : "搭乘"}${routeName}`,
+    durationMinutes,
     detail:
       transitMode === "SUBWAY"
         ? `${transitStopText("SUBWAY", from)}上車${subwayDirection ? `，往${subwayDirection}方向` : ""}，${durationText}後在${transitStopText("SUBWAY", to)}下車。`
@@ -796,6 +855,10 @@ function mapItinerary(
   const legs = Array.isArray(itinerary.legs)
     ? (itinerary.legs as OtpLeg[])
     : [];
+  if (duration === null || walkTime === null || transfers === null) {
+    return null;
+  }
+  const timing = displayedItineraryTiming(legs, duration);
   const steps = legs
     .map((leg, index) =>
       mapLegToStep(
@@ -807,14 +870,12 @@ function mapItinerary(
           .some((candidate) => candidate.transitLeg === true),
         origin,
         destination,
+        timing.legMinutes[index],
       ),
     )
     .filter((step): step is JourneyStep => Boolean(step));
 
   if (
-    duration === null ||
-    walkTime === null ||
-    transfers === null ||
     !steps.length
   ) {
     return null;
@@ -824,8 +885,9 @@ function mapItinerary(
 
   return {
     summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
-    estimatedMinutes: minutes(duration),
-    walkingMinutes: displayedWalkingMinutes(legs, walkTime),
+    estimatedMinutes: timing.estimatedMinutes,
+    walkingMinutes: displayedWalkingMinutes(legs, walkTime, timing.legMinutes),
+    waitingMinutes: timing.waitingMinutes,
     transfers: Math.max(0, Math.round(transfers)),
     steps,
     firstTransitLeg: firstTransitLeg(legs),
@@ -853,13 +915,20 @@ function combineItineraries(
     first.firstTransitLeg && second.firstTransitLeg ? 1 : 0;
   const transfers = first.transfers + second.transfers + boundaryTransfer;
   if (transfers > MAX_TRANSFERS) return null;
+  const estimatedMinutes = Math.max(1, Math.ceil((endAt - startAt) / 60_000));
+  const steps = [...first.steps, ...second.steps];
+  const displayedMovementMinutes = steps.reduce(
+    (total, step) => total + (step.durationMinutes ?? 0),
+    0,
+  );
 
   return {
     summary: `從${endpointName(origin, "origin")}到${endpointName(destination, "destination")}：建議行程`,
-    estimatedMinutes: Math.max(1, Math.ceil((endAt - startAt) / 60_000)),
+    estimatedMinutes,
     walkingMinutes: first.walkingMinutes + second.walkingMinutes,
+    waitingMinutes: Math.max(0, estimatedMinutes - displayedMovementMinutes),
     transfers,
-    steps: [...first.steps, ...second.steps],
+    steps,
     firstTransitLeg: first.firstTransitLeg ?? second.firstTransitLeg,
     accessibilityScore:
       first.accessibilityScore === null || second.accessibilityScore === null
@@ -1118,6 +1187,7 @@ function toAlternative(
     summary: alternative.summary,
     estimatedMinutes: alternative.estimatedMinutes,
     walkingMinutes: alternative.walkingMinutes,
+    waitingMinutes: alternative.waitingMinutes,
     transfers: alternative.transfers,
     steps: alternative.steps,
     firstTransitLeg: alternative.firstTransitLeg,
@@ -1243,7 +1313,7 @@ export class OtpClient {
       this.config.timeoutMs,
     );
 
-    return parseItineraries(data, request.preferences)
+    return parseItineraries(data, queryPreferences)
       .map((itinerary) =>
         mapItinerary(
           itinerary,
@@ -1291,6 +1361,7 @@ export class OtpClient {
     destination: ResolvedOtpPlace,
     requestedAt: Date,
     transferHubs: ResolvedOtpPlace[],
+    queryPreferences: JourneyPreferences = request.preferences,
   ): Promise<{ plan: MappedItinerary; hubName: string } | null> {
     const attempts = await Promise.all(
       transferHubs.slice(0, 4).map(async (hub) => {
@@ -1300,6 +1371,7 @@ export class OtpClient {
             origin,
             hub,
             requestedAt,
+            queryPreferences,
           );
           const first = firstCandidates[0];
           const firstArrival = first?.endAt
@@ -1312,6 +1384,7 @@ export class OtpClient {
             hub,
             destination,
             new Date(firstArrival + TRANSFER_BUFFER_MS),
+            queryPreferences,
           );
           const second = secondCandidates[0];
           if (!second) return null;
@@ -1348,7 +1421,7 @@ export class OtpClient {
           compareMappedItineraries(
             left.plan,
             right.plan,
-            request.preferences,
+            queryPreferences,
           ),
         )[0] ?? null
     );
@@ -1412,6 +1485,9 @@ export class OtpClient {
           destination,
           requestedAt,
           transferHubs,
+          accessibilityQueryFallback
+            ? { ...request.preferences, stepFree: false }
+            : request.preferences,
         );
         if (!fallback) throw error;
         candidates = [fallback.plan];
@@ -1419,6 +1495,10 @@ export class OtpClient {
         transferHubPlan = fallback.plan;
       }
     }
+
+    const appliedPreferences = accessibilityQueryFallback
+      ? { ...request.preferences, stepFree: false }
+      : request.preferences;
 
     if (this.shouldAttemptTransitRescue(candidates)) {
       try {
@@ -1436,6 +1516,7 @@ export class OtpClient {
           destination,
           requestedAt,
           transferHubs,
+          appliedPreferences,
         );
         if (fallback) {
           transferHubPlan = fallback.plan;
@@ -1448,7 +1529,7 @@ export class OtpClient {
                 ) === index,
             )
             .sort((left, right) =>
-              compareMappedItineraries(left, right, request.preferences),
+              compareMappedItineraries(left, right, appliedPreferences),
             );
         }
       } catch {
@@ -1458,7 +1539,7 @@ export class OtpClient {
 
     const agentSelection = await this.selectWithAgent(
       candidates,
-      request.preferences,
+      appliedPreferences,
     );
     candidates = agentSelection.candidates;
 
@@ -1502,20 +1583,23 @@ export class OtpClient {
           ? ["目前暫停無階梯條件計算；本次改列可用的大眾運輸方案，沿線無障礙狀態仍視為未知。"]
           : []),
         "靜態 GTFS 不含臨時停駛、延誤與現場施工；出發前仍須確認營運公告。",
-        request.preferences.stepFree
-          ? "避開階梯的要求只依 GTFS／OpenStreetMap 已標記資料計算；未知或缺漏欄位不能視為可通行保證。"
+        accessibilityQueryFallback
+          ? "本次沒有套用無階梯條件，不能據此判斷沿線是否可通行。"
+          : request.preferences.stepFree
+            ? "避開階梯的要求只依 GTFS／OpenStreetMap 已標記資料計算；未知或缺漏欄位不能視為可通行保證。"
           : "沿途階梯、坡度、電梯與人行環境尚未逐段確認。",
       ],
       data: {
         summary: selected.summary,
         estimatedMinutes: selected.estimatedMinutes,
         walkingMinutes: selected.walkingMinutes,
+        waitingMinutes: selected.waitingMinutes,
         transfers: selected.transfers,
         steps: selected.steps,
         firstTransitLeg: selected.firstTransitLeg,
         preferenceAssessment: preferenceAssessment(
           selected,
-          request.preferences,
+          appliedPreferences,
           candidates,
         ),
         alternatives: candidates
@@ -1533,7 +1617,7 @@ export class OtpClient {
             toAlternative(
               selected,
               candidate,
-              request.preferences,
+              appliedPreferences,
               candidates,
             ),
           ),
