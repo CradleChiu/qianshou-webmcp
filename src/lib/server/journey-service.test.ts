@@ -250,6 +250,83 @@ describe("journey service orchestration", () => {
     expect(result.confirmations).toEqual({});
   });
 
+  it("明確要求車站時不把周邊同名公車站牌誤判成地點歧義", async () => {
+    const stationArea = [
+      {
+        place_id: 201,
+        lat: "25.0477",
+        lon: "121.5171",
+        name: "臺北車站",
+        display_name: "臺北車站, 中正區, 臺北市, 臺灣",
+        category: "railway",
+        type: "station",
+        address: { city: "臺北市" },
+      },
+      {
+        place_id: 202,
+        lat: "25.0463",
+        lon: "121.5170",
+        name: "臺北車站(忠孝)",
+        display_name: "臺北車站(忠孝), 中正區, 臺北市, 臺灣",
+        category: "highway",
+        type: "bus_stop",
+        address: { city: "臺北市" },
+      },
+      {
+        place_id: 203,
+        lat: "25.0474",
+        lon: "121.5140",
+        name: "臺北車站(忠孝)",
+        display_name: "臺北車站(忠孝), 中正區, 臺北市, 臺灣",
+        category: "highway",
+        type: "bus_stop",
+        address: { city: "臺北市" },
+      },
+    ];
+    const fetcher: ServerFetch = vi.fn<ServerFetch>(async (input) => {
+      if (!input.toString().includes("nominatim.test")) {
+        return Response.json(otpWalkingResponse());
+      }
+      const query = new URL(input.toString()).searchParams.get("q") ?? "";
+      return Response.json(
+        query === "臺北車站" ? stationArea : nominatimPlaces(input),
+      );
+    });
+    const placeCandidateSelector = vi.fn(
+      async ({ candidates }: PlaceCandidateSelectionRequest) => ({
+        candidateId:
+          candidates.find(({ kind }) => kind === "station")?.id ?? null,
+        confidence: "high" as const,
+        reason: "使用者明確要求車站。",
+      }),
+    );
+    const services = createJourneyServices({
+      env: {
+        NOMINATIM_SEARCH_URL: "https://nominatim.test/search",
+        OTP_GRAPHQL_URL: "http://otp.test/otp/gtfs/v1",
+      },
+      fetcher,
+      placeCandidateSelector,
+    });
+
+    const result = await services.prepareAccessibleJourney({
+      origin: "臺北車站",
+      destination: "臺大醫院",
+      preferences: {
+        minimizeWalking: true,
+        minimizeTransfers: true,
+        stepFree: true,
+      },
+    });
+
+    expect(placeCandidateSelector).toHaveBeenCalledOnce();
+    expect(result.origin).toMatchObject({
+      name: "臺北車站",
+      kind: "station",
+    });
+    expect(result.confirmations.origin).toBeUndefined();
+  });
+
   it("同名地點跨越雙北時不允許 Agent 代替使用者猜選", async () => {
     const cityHalls = [
       {

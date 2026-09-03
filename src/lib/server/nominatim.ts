@@ -34,6 +34,13 @@ function readText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function mapSearchText(query: string): string {
+  if (query.endsWith("車站")) return query;
+  if (!query.endsWith("站")) return query;
+  const withoutStation = query.slice(0, -1).replace(/^捷運/u, "").trim();
+  return withoutStation.length >= 2 ? withoutStation : query;
+}
+
 function placeKind(record: NominatimRecord): PlaceCandidate["kind"] {
   const category = readText(record.category);
   const type = readText(record.type);
@@ -160,7 +167,7 @@ export class NominatimClient {
 
     const candidates = await this.schedule(async () => {
       const url = new URL(this.config.searchUrl);
-      url.searchParams.set("q", normalized);
+      url.searchParams.set("q", mapSearchText(normalized));
       url.searchParams.set("format", "jsonv2");
       url.searchParams.set("addressdetails", "1");
       url.searchParams.set("namedetails", "1");

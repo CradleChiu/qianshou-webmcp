@@ -150,4 +150,37 @@ describe("OpenStreetMap Nominatim adapter", () => {
 
     expect(result.map(({ kind }) => kind)).toEqual(["station", "station"]);
   });
+
+  it("以一般地名核心搜尋 X站，讓地圖服務可回傳真正站體", async () => {
+    let requestedQuery = "";
+    const fetcher: ServerFetch = vi.fn(async (input) => {
+      requestedQuery = new URL(input.toString()).searchParams.get("q") ?? "";
+      return jsonResponse([
+        {
+          place_id: 801,
+          lat: "25.1676",
+          lon: "121.4458",
+          name: "淡水",
+          display_name: "淡水, 淡水區, 新北市, 臺灣",
+          category: "railway",
+          type: "station",
+          address: { city: "新北市" },
+        },
+      ]);
+    });
+    const client = new NominatimClient(
+      {
+        searchUrl: "https://nominatim.example.test/search",
+        reverseUrl: "https://nominatim.example.test/reverse",
+        userAgent: "Qianshou-Test/1.0",
+        timeoutMs: 2_000,
+      },
+      { fetcher },
+    );
+
+    const result = await client.searchPlaces("淡水站");
+
+    expect(requestedQuery).toBe("淡水");
+    expect(result[0]).toMatchObject({ name: "淡水", kind: "station" });
+  });
 });

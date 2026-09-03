@@ -52,6 +52,11 @@ function candidateSearchNames(candidate: PlaceCandidate): string[] {
   return [candidate.name, ...(candidate.aliases ?? [])].map(normalizedPlaceText);
 }
 
+function queryRequestsStation(query: string): boolean {
+  const normalized = normalizedPlaceText(query);
+  return query.trim().endsWith("站") || normalized.endsWith("station");
+}
+
 function queryHasUniqueCandidateQualifier(
   query: string,
   candidates: PlaceCandidate[],
@@ -85,12 +90,19 @@ function hasUnresolvedPlaceAmbiguity(
   });
   if (related.length < 2) return false;
 
+  const stationCandidates = related.filter(
+    (candidate) => candidate.kind === "station",
+  );
+  const comparable =
+    queryRequestsStation(query) && stationCandidates.length
+      ? stationCandidates
+      : related;
   const cities = new Set(
-    related
+    comparable
       .map((candidate) => candidate.city)
       .filter((city): city is NonNullable<PlaceCandidate["city"]> => city !== null),
   );
-  const names = related.map((candidate) => normalizedPlaceText(candidate.name));
+  const names = comparable.map((candidate) => normalizedPlaceText(candidate.name));
   const hasDuplicateName = names.some(
     (name, index) => names.indexOf(name) !== index,
   );
