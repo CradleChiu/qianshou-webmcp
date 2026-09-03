@@ -14,10 +14,11 @@ The current pilot covers Taipei and New Taipei. It combines OpenTripPlanner, TDX
 
 ## Why WebMCP matters here
 
-Without WebMCP, an agent has to infer controls from pixels or ask a traveler to fill several precise fields. Qianshou exposes two purpose-built tools through `document.modelContext.registerTool`:
+Without WebMCP, an agent has to infer controls from pixels or ask a traveler to fill several precise fields. Qianshou exposes three purpose-built tools through `document.modelContext.registerTool`:
 
 - `prepare_accessible_journey` accepts natural origin and destination references, resolves ambiguous places, requests fresh browser location only when needed, and prepares the route, matching arrival information, and short-range weather in one operation.
 - `describe_current_location` requests a fresh one-time browser location and turns it into a human-readable nearby place without returning raw coordinates to the agent.
+- `select_journey_alternative` switches the visible journey to an alternative already returned by the planner and refreshes arrival information for that route, without inventing a new option.
 
 Every tool result also updates the visible page. This creates a shared workspace: the agent can do the structured work, while the person can inspect sources, select a place candidate, compare route alternatives, use the keyboard, or listen to the itinerary.
 

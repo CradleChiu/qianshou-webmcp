@@ -38,6 +38,7 @@ Qianshou uses WebMCP as the collaboration boundary. The page exposes structured,
 
 - `prepare_accessible_journey` prepares a complete journey from natural place references and returns route, matched arrival context, weather, source freshness, limitations, and any required place confirmation.
 - `describe_current_location` obtains a fresh one-time location and returns an approximate human-readable place without exposing coordinates to the agent.
+- `select_journey_alternative` lets the agent act on a user's comparison request by selecting an existing route alternative, refreshing its matched arrival context, and synchronizing the visible page.
 
 The agent does not need to scrape the UI, invent selectors, or ask the person which tool to use. Both the WebMCP path and manual path call the same journey service, and every tool result updates the visible page. This makes the agent useful without making the human interface secondary.
 
@@ -55,7 +56,7 @@ This collaboration also creates a privacy boundary: raw browser geolocation coor
 
 ## How we built it
 
-The interface is a Next.js 16 and React 19 application. Native WebMCP tools are registered with `document.modelContext.registerTool`. Both tools call a shared server-side TypeScript service.
+The interface is a Next.js 16 and React 19 application. Native WebMCP tools are registered with `document.modelContext.registerTool`. The tools reuse the same journey services and visible client state as the human interface.
 
 Natural typed requests are converted into a strict JSON intent by a loopback-only Codex CLI process with an explicit schema, timeout, concurrency limit, and no shell, browser, plugin, or project-write access. Location resolution combines TDX and OpenStreetMap Nominatim. OpenTripPlanner 2.9 combines TDX GTFS with OpenStreetMap streets. TDX supplies route-specific bus arrivals and Taipei Metro LiveBoard information. Taiwan's Central Weather Administration supplies township-level three-hour forecasts.
 
@@ -99,7 +100,8 @@ WebMCP, Next.js, React, TypeScript, Codex CLI, OpenTripPlanner, GTFS, TDX, OpenS
 1. Open https://loveyou.cradle-ai.dev/journey in ChatGPT's in-app browser, or in a WebMCP-enabled version of Chrome.
 2. Ask naturally: `我想從臺大醫院去板橋車站，少走路、少轉乘，順便告訴我下一班車和未來幾小時的天氣。`
 3. Confirm that the agent invokes `prepare_accessible_journey` and that the route, matching arrival card, weather, data sources, and limitations appear on the same page.
-4. Ask `這裡是哪裡？` only if you are comfortable granting one-time browser location permission. Confirm that `describe_current_location` updates the page and does not return coordinates to the agent.
-5. The same first request can also be typed directly into the page to verify the non-WebMCP fallback.
+4. If alternatives are returned, ask for one by its visible tradeoff, such as `改用走路比較少的方案`. Confirm that the agent invokes `select_journey_alternative`, changes the visible route, and refreshes the matched arrival card.
+5. Ask `這裡是哪裡？` only if you are comfortable granting one-time browser location permission. Confirm that `describe_current_location` updates the page and does not return coordinates to the agent.
+6. The same first request can also be typed directly into the page to verify the non-WebMCP fallback.
 
 No account is required. Live upstream data may occasionally be unavailable; the page reports that state explicitly and does not replace failed official data with a fabricated result.

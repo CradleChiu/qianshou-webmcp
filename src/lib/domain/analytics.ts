@@ -40,7 +40,10 @@ export type AnalyticsMetadata = {
   candidateSource?: "user" | "TDX" | "OpenStreetMap";
   candidateCount?: number;
   control?: "read" | "pause" | "resume" | "stop" | "open" | "close";
-  toolName?: "prepare_accessible_journey" | "describe_current_location";
+  toolName?:
+    | "prepare_accessible_journey"
+    | "describe_current_location"
+    | "select_journey_alternative";
   hasTransit?: boolean;
   errorCode?:
     | "unsupported"

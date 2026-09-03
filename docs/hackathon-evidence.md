@@ -25,7 +25,7 @@ All current commits are dated between August 29 and September 2, 2026. The relev
 | `2d00016` | Fresh location semantics for “here” in either direction |
 | `8e40056` | Session-scoped journey interaction analytics |
 
-The WebMCP implementation is visible in [`src/lib/webmcp/register-tools.ts`](../src/lib/webmcp/register-tools.ts). The live app exposes `prepare_accessible_journey` and `describe_current_location` through native `document.modelContext.registerTool` calls.
+The WebMCP implementation is visible in [`src/lib/webmcp/register-tools.ts`](../src/lib/webmcp/register-tools.ts). The live app exposes `prepare_accessible_journey`, `describe_current_location`, and `select_journey_alternative` through native `document.modelContext.registerTool` calls.
 
 To reproduce the provenance check:
 

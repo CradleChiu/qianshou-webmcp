@@ -149,7 +149,11 @@ function readMetadata(value: unknown): AnalyticsMetadata {
   copyEnum("candidateField", ["origin", "destination"]);
   copyEnum("candidateSource", ["user", "TDX", "OpenStreetMap"]);
   copyEnum("control", ["read", "pause", "resume", "stop", "open", "close"]);
-  copyEnum("toolName", ["prepare_accessible_journey", "describe_current_location"]);
+  copyEnum("toolName", [
+    "prepare_accessible_journey",
+    "describe_current_location",
+    "select_journey_alternative",
+  ]);
   copyEnum("errorCode", [
     "unsupported",
     "permission-denied",

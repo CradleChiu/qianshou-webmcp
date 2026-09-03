@@ -350,11 +350,22 @@ def run_desktop_and_webmcp(browser):
     page.wait_for_function(
         "Object.keys(window.__webmcpTools || {}).includes('prepare_accessible_journey')"
     )
-    assert page.evaluate("() => Object.keys(window.__webmcpTools).sort()") == ["prepare_accessible_journey"]
+    assert page.evaluate("() => Object.keys(window.__webmcpTools).sort()") == [
+        "describe_current_location",
+        "prepare_accessible_journey",
+        "select_journey_alternative",
+    ]
     properties = page.evaluate("() => window.__webmcpTools.prepare_accessible_journey.inputSchema.properties")
     assert "origin" in properties and "destination" in properties
     assert page.evaluate("() => window.__webmcpTools.prepare_accessible_journey.inputSchema.required") == ["destination"]
     assert "minimizeWalking" not in properties
+    alternative_properties = page.evaluate(
+        "() => window.__webmcpTools.select_journey_alternative.inputSchema.properties"
+    )
+    assert list(alternative_properties) == ["alternativeId"]
+    assert page.evaluate(
+        "() => window.__webmcpTools.select_journey_alternative.inputSchema.required"
+    ) == ["alternativeId"]
     page.get_by_role("button", name="幫我安排這趟路").click()
     assert page.locator("#journey-request").get_attribute("aria-invalid") == "true"
     assert page.locator("#journey-request").evaluate(
@@ -374,6 +385,13 @@ def run_desktop_and_webmcp(browser):
         })
     """)
     assert tool_result["state"] == "ready"
+    unavailable_selection = page.evaluate("""
+        () => window.__webmcpTools.select_journey_alternative.execute({
+          alternativeId: 'not-in-current-journey'
+        })
+    """)
+    assert unavailable_selection["status"] == "unavailable"
+    assert unavailable_selection["availableAlternatives"] == []
     page.screenshot(path=str(ARTIFACTS / "desktop-natural-language.png"), full_page=True)
     page.close()
 

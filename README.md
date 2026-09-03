@@ -26,7 +26,7 @@
 - 路線硬性限制最多 2 次轉乘；OTP 先產生真實候選，長距離純步行時會再尋找可銜接的大眾運輸方案，再由受限制的 Codex 路線選擇 Agent 比較總時間、步行與轉乘。Agent 只能回傳既有候選 ID，失敗時回到確定性排序。
 - 同機、loopback-only 的 Codex CLI 意圖服務：結構化輸出、60 秒逾時、同時最多 2 筆；關閉 shell、瀏覽器、外掛與多 Agent，採唯讀、ephemeral 執行。
 - 可朗讀的行程結果，以及逐項呈現官方／示範、資料時間、取得時間、新鮮度與限制。
-- 單一 `prepare_accessible_journey` WebMCP tool：起點可省略，頁面會另行取得使用者定位授權；工具回傳給 Agent 時不包含目前位置的精確經緯度。系統會自行完成地點解析、路線、精確到站與短時天氣；同名地點一定先交由使用者確認。
+- 三個語意型 WebMCP tools：`prepare_accessible_journey` 安排行程與整合到站、天氣，`describe_current_location` 回答「這裡是哪裡」，`select_journey_alternative` 依使用者要求切換既有替代路線並重綁到站資訊。起點可省略，頁面會另行取得使用者定位授權；工具回傳給 Agent 時不包含目前位置的精確經緯度，同名地點一定先交由使用者確認。
 - 主要畫面與朗讀只使用日常行程語言；OTP、GTFS、TDX 等實作與來源細節保留在可展開的「資料來源與目前限制」。
 - WebMCP 不可用時保留完整的單一自然語言操作，不退回要求精準拆分起點與目的地的表單。
 - 鍵盤焦點、skip link、live region、reduced motion 與手機版面。

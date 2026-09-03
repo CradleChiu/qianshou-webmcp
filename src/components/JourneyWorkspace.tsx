@@ -39,6 +39,9 @@ import type {
 import {
   registerJourneyTools,
   WEBMCP_RESULT_EVENT,
+  WEBMCP_SELECT_ALTERNATIVE_EVENT,
+  type WebMcpAlternativeSelectionDetail,
+  type WebMcpAlternativeSelectionResult,
   type WebMcpResultDetail,
 } from "@/lib/webmcp/register-tools";
 
@@ -250,6 +253,10 @@ export function JourneyWorkspace() {
   const firstPlaceChoiceRef = useRef<HTMLButtonElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const activePlanRef = useRef<ServiceEnvelope<JourneyPlan> | undefined>(
+    undefined,
+  );
+  const alternativeSelectionBusyRef = useRef<string | null>(null);
   const analyticsContextRef = useRef<AnalyticsContext | null>(null);
   const inputStartRecordedRef = useRef(false);
 
@@ -408,6 +415,84 @@ export function JourneyWorkspace() {
     return () => window.removeEventListener(WEBMCP_RESULT_EVENT, handleToolResult);
   }, []);
 
+  useEffect(() => {
+    const handleAlternativeSelection = (event: Event) => {
+      const selectionEvent =
+        event as CustomEvent<WebMcpAlternativeSelectionDetail>;
+      selectionEvent.preventDefault();
+
+      const activePlan = activePlanRef.current;
+      const alternatives = activePlan?.data.alternatives ?? [];
+      const availableAlternatives = alternatives.map(
+        ({
+          id,
+          label,
+          reason,
+          estimatedMinutes,
+          walkingMinutes,
+          transfers,
+        }) => ({
+          id,
+          label,
+          reason,
+          estimatedMinutes,
+          walkingMinutes,
+          transfers,
+        }),
+      );
+      if (!activePlan || activePlan.status === "unavailable") {
+        selectionEvent.detail.respond({
+          status: "unavailable",
+          message: "目前沒有可切換的行程。請先安排一趟路。",
+        });
+        return;
+      }
+      if (alternativeSelectionBusyRef.current) {
+        selectionEvent.detail.respond({
+          status: "unavailable",
+          message: "上一個替代方案仍在更新，請完成後再選擇。",
+          availableAlternatives,
+        });
+        return;
+      }
+
+      const alternative = alternatives.find(
+        (candidate) => candidate.id === selectionEvent.detail.alternativeId,
+      );
+      if (!alternative) {
+        selectionEvent.detail.respond({
+          status: "unavailable",
+          message: "找不到指定的替代方案，請使用目前行程提供的方案 ID。",
+          availableAlternatives,
+        });
+        return;
+      }
+
+      void chooseAlternative(alternative, "webmcp")
+        .then(selectionEvent.detail.respond)
+        .catch((caught) => {
+          selectionEvent.detail.respond({
+            status: "unavailable",
+            message:
+              caught instanceof Error
+                ? caught.message
+                : "目前無法切換替代方案。",
+            availableAlternatives,
+          });
+        });
+    };
+
+    window.addEventListener(
+      WEBMCP_SELECT_ALTERNATIVE_EVENT,
+      handleAlternativeSelection,
+    );
+    return () =>
+      window.removeEventListener(
+        WEBMCP_SELECT_ALTERNATIVE_EVENT,
+        handleAlternativeSelection,
+      );
+  }, [speechStatus]);
+
   function applyPreparation(
     preparation: JourneyPreparation,
     input: { origin: string; destination: string },
@@ -452,11 +537,13 @@ export function JourneyWorkspace() {
           }
         : {}),
     });
-    setResults({
+    const nextResults = {
       plan: preparation.plan,
       arrivals: preparation.arrivals,
       weather: preparation.weather,
-    });
+    };
+    activePlanRef.current = preparation.plan;
+    setResults(nextResults);
     const hasInputProblem =
       preparation.state === "unavailable" && !preparation.plan;
     setError(hasInputProblem ? preparation.message : "");
@@ -741,10 +828,10 @@ export function JourneyWorkspace() {
     const confirmedOrigin = placeSelections.origin?.candidate;
     const confirmedDestination = placeSelections.destination?.candidate;
     const canReuseConfirmedPlaces =
-      !intentDirty &&
       !placeChoices.origin &&
       !placeChoices.destination &&
-      Boolean(confirmedOrigin && confirmedDestination);
+      Boolean(confirmedOrigin && confirmedDestination) &&
+      (!intentDirty || utterance.length === 0);
 
     if (!canReuseConfirmedPlaces && utterance.length < 2) {
       setError("請說出你想去哪裡，或你現在附近有什麼地標。");
@@ -871,12 +958,23 @@ export function JourneyWorkspace() {
     }
   }
 
-  async function chooseAlternative(alternative: JourneyAlternative) {
-    if (!results.plan || results.plan.status === "unavailable") return;
+  async function chooseAlternative(
+    alternative: JourneyAlternative,
+    inputMethod: "keyboard" | "webmcp" = "keyboard",
+  ): Promise<WebMcpAlternativeSelectionResult> {
+    const currentPlanEnvelope = activePlanRef.current;
+    if (!currentPlanEnvelope || currentPlanEnvelope.status === "unavailable") {
+      return {
+        status: "unavailable",
+        message: "目前沒有可切換的行程。請先安排一趟路。",
+      };
+    }
     if (speechStatus !== "idle") stopSpeech();
 
-    const nextPlan = selectAlternativePlan(results.plan.data, alternative);
-    const nextEnvelope = { ...results.plan, data: nextPlan };
+    const nextPlan = selectAlternativePlan(currentPlanEnvelope.data, alternative);
+    const nextEnvelope = { ...currentPlanEnvelope, data: nextPlan };
+    activePlanRef.current = nextEnvelope;
+    alternativeSelectionBusyRef.current = alternative.id;
     setAlternativeBusyId(alternative.id);
     setError("");
     setAnnouncement(`正在改用「${alternative.label}」，並更新這一班的到站資訊。`);
@@ -894,6 +992,7 @@ export function JourneyWorkspace() {
       setResults((current) => ({ ...current, plan: nextEnvelope, arrivals }));
       recordAnalyticsEvent({
         context: analyticsContextRef.current,
+        inputMethod,
         eventName: "alternative_selected",
         outcome: "success",
         durationMs: analyticsDuration(),
@@ -901,9 +1000,20 @@ export function JourneyWorkspace() {
       });
       setAnnouncement(`已改用「${alternative.label}」，到站資訊也已同步更新。`);
       window.requestAnimationFrame(() => resultsHeadingRef.current?.focus());
+      return {
+        status:
+          nextEnvelope.status === "ok" && arrivals.status === "ok"
+            ? "ok"
+            : "partial",
+        message: `已改用「${alternative.label}」，到站資訊也已同步更新。`,
+        selectedAlternativeId: alternative.id,
+        plan: nextEnvelope,
+        arrivals,
+      };
     } catch (caught) {
       recordAnalyticsEvent({
         context: analyticsContextRef.current,
+        inputMethod,
         eventName: "alternative_selected",
         outcome: "partial",
         durationMs: analyticsDuration(),
@@ -913,7 +1023,14 @@ export function JourneyWorkspace() {
         caught instanceof Error ? caught.message : "無法更新到站資訊。";
       setError(`${message} 路線已切換，出發前請另外確認班次。`);
       setAnnouncement("路線已切換，但到站資訊未能更新。");
+      return {
+        status: "partial",
+        message: `已改用「${alternative.label}」，但到站資訊未能更新。`,
+        selectedAlternativeId: alternative.id,
+        plan: nextEnvelope,
+      };
     } finally {
+      alternativeSelectionBusyRef.current = null;
       setAlternativeBusyId(null);
     }
   }
@@ -1096,6 +1213,7 @@ export function JourneyWorkspace() {
       [field]: { inputValue, candidate },
     }));
     setPlaceChoices((current) => ({ ...current, [field]: undefined }));
+    setIntentDirty(false);
     setError("");
     setAnnouncement(
       `已選擇${field === "origin" ? "起點" : "目的地"}：${candidate.name}。`,

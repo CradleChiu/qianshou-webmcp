@@ -13,15 +13,40 @@ import {
 } from "@/lib/client/current-location";
 import {
   DEFAULT_JOURNEY_PREFERENCES,
+  type JourneyAlternative,
+  type JourneyPlan,
   type JourneyPreparation,
+  type ServiceEnvelope,
+  type VehicleArrivalResult,
 } from "@/lib/domain/journey";
 
 export const WEBMCP_RESULT_EVENT = "qianshou:webmcp-result";
+export const WEBMCP_SELECT_ALTERNATIVE_EVENT =
+  "qianshou:webmcp-select-alternative";
 
 export type WebMcpResultDetail = {
   toolName: string;
   result: unknown;
   input?: Record<string, unknown>;
+};
+
+export type WebMcpAlternativeSummary = Pick<
+  JourneyAlternative,
+  "id" | "label" | "reason" | "estimatedMinutes" | "walkingMinutes" | "transfers"
+>;
+
+export type WebMcpAlternativeSelectionResult = {
+  status: "ok" | "partial" | "unavailable";
+  message: string;
+  selectedAlternativeId?: string;
+  plan?: ServiceEnvelope<JourneyPlan>;
+  arrivals?: ServiceEnvelope<VehicleArrivalResult>;
+  availableAlternatives?: WebMcpAlternativeSummary[];
+};
+
+export type WebMcpAlternativeSelectionDetail = {
+  alternativeId: string;
+  respond: (result: WebMcpAlternativeSelectionResult) => void;
 };
 
 type RegistrationStatus = "available" | "unavailable" | "failed";
@@ -70,6 +95,13 @@ const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+const journeySelectionAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
   openWorldHint: true,
 } as const;
 
@@ -125,6 +157,7 @@ export async function registerJourneyTools(): Promise<{
 
   const toolName = "prepare_accessible_journey";
   const locationToolName = "describe_current_location";
+  const alternativeToolName = "select_journey_alternative";
 
   try {
     await modelContext.registerTool({
@@ -325,12 +358,80 @@ export async function registerJourneyTools(): Promise<{
       },
     });
 
+    await modelContext.registerTool({
+      name: alternativeToolName,
+      description:
+        "Switch the journey currently shown on this page to one of the alternatives returned by prepare_accessible_journey. Use the exact alternativeId from the current journey result only after the user asks for that option or expresses a preference that clearly identifies it, such as less walking or the second option. Never invent an ID. The action updates the visible route and refreshes arrival information for the newly selected first transit leg. Speak about the route choice, not tools or implementation details.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          alternativeId: {
+            type: "string",
+            description:
+              "The exact id of an alternative in the current journey result.",
+          },
+        },
+        required: ["alternativeId"],
+        additionalProperties: false,
+      },
+      annotations: journeySelectionAnnotations,
+      execute: async (rawInput) => {
+        const analytics = beginAnalyticsInteraction("webmcp");
+        if (!isRecord(rawInput)) {
+          throw new Error("替代路線內容格式錯誤。");
+        }
+        const input = {
+          alternativeId: readString(rawInput, "alternativeId", "替代路線"),
+        };
+        let resolveSelection!: (result: WebMcpAlternativeSelectionResult) => void;
+        const selection = new Promise<WebMcpAlternativeSelectionResult>(
+          (resolve) => {
+            resolveSelection = resolve;
+          },
+        );
+        const event = new CustomEvent<WebMcpAlternativeSelectionDetail>(
+          WEBMCP_SELECT_ALTERNATIVE_EVENT,
+          {
+            cancelable: true,
+            detail: {
+              alternativeId: input.alternativeId,
+              respond: resolveSelection,
+            },
+          },
+        );
+        const handled = !window.dispatchEvent(event);
+        const result: WebMcpAlternativeSelectionResult = handled
+          ? await selection
+          : {
+              status: "unavailable" as const,
+              message: "目前頁面沒有可切換的行程。請先安排一趟路。",
+            };
+        recordAnalyticsEvent({
+          context: analytics,
+          eventName: "webmcp_tool_completed",
+          outcome:
+            result.status === "ok"
+              ? "success"
+              : result.status === "partial"
+                ? "partial"
+                : "unavailable",
+          metadata: {
+            toolName: alternativeToolName,
+            hasTransit: Boolean(result.plan?.data.firstTransitLeg),
+          },
+        });
+        publishResult(alternativeToolName, result, input);
+        return result;
+      },
+    });
+
     return {
       status: "available",
       cleanup: async () => {
         if (typeof modelContext.unregisterTool === "function") {
           await modelContext.unregisterTool(toolName);
           await modelContext.unregisterTool(locationToolName);
+          await modelContext.unregisterTool(alternativeToolName);
         }
       },
     };
@@ -338,6 +439,7 @@ export async function registerJourneyTools(): Promise<{
     if (typeof modelContext.unregisterTool === "function") {
       await modelContext.unregisterTool(toolName);
       await modelContext.unregisterTool(locationToolName);
+      await modelContext.unregisterTool(alternativeToolName);
     }
     console.error("WebMCP tool registration failed", error);
     return { status: "failed", cleanup: async () => undefined };

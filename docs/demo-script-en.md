@@ -6,7 +6,7 @@ The final video must be public on YouTube, include audio, and remain under three
 
 - Use ChatGPT's in-app browser or Chrome with WebMCP testing enabled.
 - Open `https://loveyou.cradle-ai.dev/journey` in a fresh session.
-- Confirm the Site tools menu lists `prepare_accessible_journey` and `describe_current_location`.
+- Confirm the Site tools menu lists `prepare_accessible_journey`, `describe_current_location`, and `select_journey_alternative`.
 - Do one private rehearsal with the exact main prompt.
 - Close notifications and hide bookmarks or account information.
 - Do not demonstrate current location from a private residence. If the location tool is shown, record from a public place you are comfortable revealing.
@@ -24,7 +24,7 @@ The final video must be public on YouTube, include audio, and remain under three
 
 ### 0:15–0:30 — Show native WebMCP
 
-**Screen:** Briefly open the browser's Site tools panel. Show the two registered tools, then close it.
+**Screen:** Briefly open the browser's Site tools panel. Show the three registered tools, then close it.
 
 **Narration:**
 
@@ -54,15 +54,15 @@ Show that the agent selects `prepare_accessible_journey`. Keep the tool invocati
 
 ### 1:50–2:12 — Human control
 
-**Screen:** Start itinerary speech for a few seconds, stop it, and—if alternatives are present—select another route. Do not wait for the full speech output.
+**Screen:** If alternatives are present, ask the agent to switch to the option with less walking, without naming a tool. Briefly show `select_journey_alternative`, the updated visible route, and its refreshed arrival card. If time permits, start itinerary speech for a few seconds and stop it.
 
 **Narration:**
 
-> The agent does the structured work, but the person remains in control: listening, comparing, confirming ambiguous places, or using the same interface without an agent.
+> The agent can continue acting on the person's intent instead of stopping after the first result. It selects only a route the planner actually returned, while the person sees the same change and remains in control.
 
 ### 2:12–2:28 — Privacy boundary and close
 
-**Screen:** Return to the main result. Optionally show the privacy details in the footer.
+**Screen:** Return to the main result and briefly show the expandable source details.
 
 **Narration:**
 
