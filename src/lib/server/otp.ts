@@ -25,6 +25,7 @@ import type {
 export type OtpConfig = {
   graphqlUrl: string;
   timeoutMs: number;
+  itineraryCandidateLimit?: number;
   transitRescueWalkingMinutes?: number;
   accessibilityRoutingEnabled?: boolean;
 };
@@ -119,6 +120,9 @@ const TRANSFER_HUB_RADIUS_METERS = 350;
 const MAX_TRANSFER_HUBS = 4;
 const DEFAULT_TRANSIT_RESCUE_WALKING_MINUTES = 30;
 const MAX_AGENT_ROUTE_CANDIDATES = 6;
+// Five keeps one primary route plus useful tradeoffs while avoiding the large
+// cost of expanding ten near-duplicate departures in dense Taipei timetables.
+const DEFAULT_OTP_ITINERARY_CANDIDATE_LIMIT = 5;
 
 export const OTP_PLAN_QUERY = `
   query PlanAccessibleTrip(
@@ -1209,7 +1213,9 @@ export class OtpClient {
               },
             },
             preferences: requestPreferences(queryPreferences),
-            first: 10,
+            first:
+              this.config.itineraryCandidateLimit ??
+              DEFAULT_OTP_ITINERARY_CANDIDATE_LIMIT,
           },
         }),
         cache: "no-store",

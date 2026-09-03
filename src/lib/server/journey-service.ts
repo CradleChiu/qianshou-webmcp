@@ -68,6 +68,8 @@ function runtimeEnvironment(): Environment {
     CWA_API_BASE_URL: process.env.CWA_API_BASE_URL,
     OTP_GRAPHQL_URL: process.env.OTP_GRAPHQL_URL,
     OTP_TIMEOUT_MS: process.env.OTP_TIMEOUT_MS,
+    OTP_ITINERARY_CANDIDATE_LIMIT:
+      process.env.OTP_ITINERARY_CANDIDATE_LIMIT,
     OTP_ACCESSIBILITY_ROUTING_ENABLED:
       process.env.OTP_ACCESSIBILITY_ROUTING_ENABLED,
     OTP_TRANSIT_RESCUE_WALKING_MINUTES:
@@ -95,7 +97,11 @@ function nominatimConfig(env: Environment): NominatimConfig {
 }
 
 function otpConfig(env: Environment): OtpConfig {
-  const parsed = Number.parseInt(env.OTP_TIMEOUT_MS ?? "20000", 10);
+  const parsed = Number.parseInt(env.OTP_TIMEOUT_MS ?? "60000", 10);
+  const itineraryCandidateLimit = Number.parseInt(
+    env.OTP_ITINERARY_CANDIDATE_LIMIT ?? "5",
+    10,
+  );
   const rescueWalkingMinutes = Number.parseInt(
     env.OTP_TRANSIT_RESCUE_WALKING_MINUTES ?? "30",
     10,
@@ -104,8 +110,11 @@ function otpConfig(env: Environment): OtpConfig {
     graphqlUrl:
       env.OTP_GRAPHQL_URL?.trim() || "http://127.0.0.1:8080/otp/gtfs/v1",
     timeoutMs: Number.isFinite(parsed)
-      ? Math.min(30_000, Math.max(5_000, parsed))
-      : 20_000,
+      ? Math.min(60_000, Math.max(5_000, parsed))
+      : 60_000,
+    itineraryCandidateLimit: Number.isFinite(itineraryCandidateLimit)
+      ? Math.min(10, Math.max(2, itineraryCandidateLimit))
+      : 5,
     transitRescueWalkingMinutes: Number.isFinite(rescueWalkingMinutes)
       ? Math.min(180, Math.max(10, rescueWalkingMinutes))
       : 30,

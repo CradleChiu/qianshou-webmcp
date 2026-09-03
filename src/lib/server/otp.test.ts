@@ -149,7 +149,7 @@ describe("OTP adapter", () => {
           transfer: { cost: 600, maximumAdditionalTransfers: 2 },
         },
       },
-      first: 10,
+      first: 5,
     });
   });
 
